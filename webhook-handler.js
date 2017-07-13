@@ -16,7 +16,7 @@ function main(params) {
   }
   
   if(params.echo){
-    return { "challenge": params.echo };
+    return { "echo": params.echo };
   }
   
   logData(params);
