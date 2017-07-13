@@ -11,9 +11,12 @@ function logData(data) {
 
 function main(params) {
   /* respond to the challenge request with an echo */
-  var challenge = params.challenge;
-  if (challenge) {
-    return { "challenge": challenge };
+  if (params.challenge) {
+    return { "challenge": params.challenge };
+  }
+  
+  if(params.echo){
+    return { "challenge": params.echo };
   }
   
   logData(params);
