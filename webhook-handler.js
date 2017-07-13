@@ -6,7 +6,7 @@ function logData(data) {
     if (!error) {
       console.log(body);
     }
-  });
+  });   
 }
 
 function main(params) {
