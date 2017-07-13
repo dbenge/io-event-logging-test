@@ -1,8 +1,14 @@
 var request = require('request-promise');
 
-function logData(data) {
-  var url ='https://requestb.in/u0g37mu0'
-  request(url, function (error, response, data) {
+function logData(postData) {
+  var options = {
+    method: 'post',
+    body: postData,
+    json: true,
+    url: 'https://requestb.in/u0g37mu0'
+  }
+  
+  request(options, function (error, response, data) {
     if (!error) {
       console.log(body);
     }
