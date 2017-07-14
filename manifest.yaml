@@ -5,6 +5,6 @@ package:
   actions:
     handle-webhook:
       version: 1.0
-      location: webhook-handler.js
+      location: io-event-logging-test-1.0.1.js
       runtime: nodejs@6
       inputs:
