@@ -1,4 +1,5 @@
 var request = require('request-promise');
+var documentdb = require('documentdb');
 
 function logData(postData) {
   var options = {
@@ -15,7 +16,7 @@ function logData(postData) {
   });   
 }
 
-function main(params) {
+function myEntrypoint(params) {
   /* respond to the challenge request with an echo */
   if (params.challenge) {
     return { "challenge": params.challenge };
@@ -27,3 +28,5 @@ function main(params) {
   
   logData(params);
 }
+
+exports.main = myEntrypoint;
