@@ -1,7 +1,7 @@
 
 {
   "name": "io-event-logging-test",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "webhook-handler.js",
   "scripts":{
     "prepublish__": "babel src --out-file ${npm_package_name}-${npm_package_version}.js",
