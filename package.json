@@ -3,6 +3,11 @@
   "name": "io-event-logging-test",
   "version": "1.0.0",
   "main": "webhook-handler.js",
+  "scripts":{
+    "prepublish__": "babel src --out-file ${npm_package_name}-${npm_package_version}.js",
+    "prepublish": "browserify -r ./src/action/hello-world.js:main-action --no-bundle-external > ${npm_package_name}-${npm_package_version}.js && npm run whisk_wrapper",
+    "whisk_wrapper": "echo \"var main = require('main-action').default;\" >> ${npm_package_name}-${npm_package_version}.js"
+  },
   "dependencies" : {
     "babel-cli": "^6.18.0",
     "babel-core": "^6.16.0",
