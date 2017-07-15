@@ -8,12 +8,12 @@ function logData(postData) {
     json: true,
     url: 'https://requestb.in/u0g37mu0'
   }
-  
+
   request(options, function (error, response, data) {
     if (!error) {
       console.log(body);
     }
-  });   
+  });
 }
 
 function myEntrypoint(params) {
@@ -21,12 +21,12 @@ function myEntrypoint(params) {
   if (params.challenge) {
     return { "challenge": params.challenge };
   }
-  
+
   if(params.echo){
     return { "echo": params.echo };
   }
-  
+
   logData(params);
 }
 
-exports.default = myEntrypoint;
+exports.main = myEntrypoint;
