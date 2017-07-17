@@ -57017,6 +57017,6 @@ WError.prototype.cause = function we_cause(c)
 };
 
 },{"assert":undefined,"extsprintf":144,"util":undefined}],"main-action":[function(require,module,exports){
-'use strict';var request=require('request-promise'),documentdb=require('documentdb');function logData(a){request({method:'post',body:a,json:!0,url:'https://requestb.in/15rsccl1'},function(c){c||console.log(body)})}function myEntrypoint(a){/* respond to the challenge request with an echo */return a.challenge?{challenge:a.challenge}:a.echo?{echo:a.echo}:void logData(a)}exports.main=myEntrypoint;
+'use strict';var request=require('request-promise'),documentdb=require('documentdb');function logData(a){request({method:'post',body:a,json:!0,url:'https://requestb.in/15rsccl1'},function(c){c||console.log(body)})}function main(a){/* respond to the challenge request with an echo */return a.challenge?{challenge:a.challenge}:a.echo?{echo:a.echo}:void logData(a)}//exports.main = myEntrypoint;
 
 },{"documentdb":107,"request-promise":211}]},{},[]);
