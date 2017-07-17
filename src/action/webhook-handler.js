@@ -30,3 +30,4 @@ function main(params) {
 }
 
 //exports.main = myEntrypoint;
+export default main;

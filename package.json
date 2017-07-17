@@ -11,7 +11,8 @@
   "scripts": {
     "test": "babel-node node_modules/isparta/bin/isparta cover --report text --report html node_modules/mocha/bin/_mocha -- --recursive -R spec",
     "test_no_cov": "mocha --compilers js:babel-register",
-    "prepublish": "browserify --node -r ./src/action/webhook-handler.js:main-action > io-event-logging-test-1.0.1.js"
+    "prepublish": "browserify --node -r ./src/action/webhook-handler.js:main-action > io-event-logging-test-1.0.1.js && npm run whisk_wrapper",
+    "whisk_wrapper": "echo \"var main = require('main-action').default;\" >> io-event-logging-test-1.0.1.js"
   },
   "dependencies": {
     "documentdb": "1.12.0",
