@@ -16,7 +16,7 @@ function logData(postData) {
   });
 }
 
-function myEntrypoint(params) {
+function main(params) {
   /* respond to the challenge request with an echo */
   if (params.challenge) {
     return { "challenge": params.challenge };
@@ -29,4 +29,4 @@ function myEntrypoint(params) {
   logData(params);
 }
 
-exports.main = myEntrypoint;
+//exports.main = myEntrypoint;
