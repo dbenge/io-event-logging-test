@@ -6,7 +6,7 @@ function logData(postData) {
     method: 'post',
     body: postData,
     json: true,
-    url: 'https://requestb.in/u0g37mu0'
+    url: 'https://requestb.in/15rsccl1'
   }
 
   request(options, function (error, response, data) {
@@ -29,4 +29,4 @@ function myEntrypoint(params) {
   logData(params);
 }
 
-exports.default = myEntrypoint; 
+exports.main = myEntrypoint;

@@ -5877,7 +5877,7 @@ var objectKeys = Object.keys || function (obj) {
     return keys;
 };
 
-},{"jsonify":187}],43:[function(require,module,exports){
+},{"jsonify":185}],43:[function(require,module,exports){
 // Copyright 2011 Mark Cavage <mcavage@gmail.com> All rights reserved.
 
 
@@ -14328,7 +14328,7 @@ exports.badImplementation = function (message, data) {
     return err;
 };
 
-},{"hoek":176,"http":undefined}],102:[function(require,module,exports){
+},{"hoek":174,"http":undefined}],102:[function(require,module,exports){
 function Caseless (dict) {
   this.dict = dict || {}
 }
@@ -21490,7 +21490,7 @@ var ParallelQueryExecutionContext = Base.defineClass(
 if (typeof exports !== "undefined") {
     module.exports = ParallelQueryExecutionContext;
 }
-},{"../base":109,"../constants":110,"../routing/inMemoryCollectionRoutingMap":136,"../routing/smartRoutingMapProvider":138,"./defaultQueryExecutionContext":122,"./documentProducer":123,"./headerUtils":125,"./partitionedQueryExecutionContextInfoParser":127,"assert":undefined,"binary-search-bounds":64,"priorityqueuejs":209,"semaphore":232}],127:[function(require,module,exports){
+},{"../base":109,"../constants":110,"../routing/inMemoryCollectionRoutingMap":136,"../routing/smartRoutingMapProvider":138,"./defaultQueryExecutionContext":122,"./documentProducer":123,"./headerUtils":125,"./partitionedQueryExecutionContextInfoParser":127,"assert":undefined,"binary-search-bounds":64,"priorityqueuejs":207,"semaphore":232}],127:[function(require,module,exports){
 /*
 The MIT License (MIT)
 Copyright (c) 2017 Microsoft Corporation
@@ -23687,7 +23687,7 @@ exports.ECKey = function(curve, key, isPublic)
 }
 
 
-},{"./lib/ec.js":141,"./lib/sec.js":142,"crypto":undefined,"jsbn":184}],141:[function(require,module,exports){
+},{"./lib/ec.js":141,"./lib/sec.js":142,"crypto":undefined,"jsbn":182}],141:[function(require,module,exports){
 // Basic Javascript Elliptic Curve implementation
 // Ported loosely from BouncyCastle's Java EC code
 // Only Fp curves implemented for now
@@ -24250,7 +24250,7 @@ var exports = {
 
 module.exports = exports
 
-},{"jsbn":184}],142:[function(require,module,exports){
+},{"jsbn":182}],142:[function(require,module,exports){
 // Named EC curves
 
 // Requires ec.js, jsbn.js, and jsbn2.js
@@ -24422,7 +24422,7 @@ module.exports = {
   "secp256r1":secp256r1
 }
 
-},{"./ec.js":141,"jsbn":184}],143:[function(require,module,exports){
+},{"./ec.js":141,"jsbn":182}],143:[function(require,module,exports){
 'use strict';
 
 var hasOwn = Object.prototype.hasOwnProperty;
@@ -24819,464 +24819,6 @@ function createConnectionSSL (port, host, options) {
 }
 
 },{"http":undefined,"https":undefined,"net":undefined,"tls":undefined,"util":undefined}],146:[function(require,module,exports){
-var CombinedStream = require('combined-stream');
-var util = require('util');
-var path = require('path');
-var http = require('http');
-var https = require('https');
-var parseUrl = require('url').parse;
-var fs = require('fs');
-var mime = require('mime-types');
-var asynckit = require('asynckit');
-var populate = require('./populate.js');
-
-// Public API
-module.exports = FormData;
-
-// make it a Stream
-util.inherits(FormData, CombinedStream);
-
-/**
- * Create readable "multipart/form-data" streams.
- * Can be used to submit forms
- * and file uploads to other web applications.
- *
- * @constructor
- */
-function FormData() {
-  if (!(this instanceof FormData)) {
-    return new FormData();
-  }
-
-  this._overheadLength = 0;
-  this._valueLength = 0;
-  this._valuesToMeasure = [];
-
-  CombinedStream.call(this);
-}
-
-FormData.LINE_BREAK = '\r\n';
-FormData.DEFAULT_CONTENT_TYPE = 'application/octet-stream';
-
-FormData.prototype.append = function(field, value, options) {
-
-  options = options || {};
-
-  // allow filename as single option
-  if (typeof options == 'string') {
-    options = {filename: options};
-  }
-
-  var append = CombinedStream.prototype.append.bind(this);
-
-  // all that streamy business can't handle numbers
-  if (typeof value == 'number') {
-    value = '' + value;
-  }
-
-  // https://github.com/felixge/node-form-data/issues/38
-  if (util.isArray(value)) {
-    // Please convert your array into string
-    // the way web server expects it
-    this._error(new Error('Arrays are not supported.'));
-    return;
-  }
-
-  var header = this._multiPartHeader(field, value, options);
-  var footer = this._multiPartFooter();
-
-  append(header);
-  append(value);
-  append(footer);
-
-  // pass along options.knownLength
-  this._trackLength(header, value, options);
-};
-
-FormData.prototype._trackLength = function(header, value, options) {
-  var valueLength = 0;
-
-  // used w/ getLengthSync(), when length is known.
-  // e.g. for streaming directly from a remote server,
-  // w/ a known file a size, and not wanting to wait for
-  // incoming file to finish to get its size.
-  if (options.knownLength != null) {
-    valueLength += +options.knownLength;
-  } else if (Buffer.isBuffer(value)) {
-    valueLength = value.length;
-  } else if (typeof value === 'string') {
-    valueLength = Buffer.byteLength(value);
-  }
-
-  this._valueLength += valueLength;
-
-  // @check why add CRLF? does this account for custom/multiple CRLFs?
-  this._overheadLength +=
-    Buffer.byteLength(header) +
-    FormData.LINE_BREAK.length;
-
-  // empty or either doesn't have path or not an http response
-  if (!value || ( !value.path && !(value.readable && value.hasOwnProperty('httpVersion')) )) {
-    return;
-  }
-
-  // no need to bother with the length
-  if (!options.knownLength) {
-    this._valuesToMeasure.push(value);
-  }
-};
-
-FormData.prototype._lengthRetriever = function(value, callback) {
-
-  if (value.hasOwnProperty('fd')) {
-
-    // take read range into a account
-    // `end` = Infinity –> read file till the end
-    //
-    // TODO: Looks like there is bug in Node fs.createReadStream
-    // it doesn't respect `end` options without `start` options
-    // Fix it when node fixes it.
-    // https://github.com/joyent/node/issues/7819
-    if (value.end != undefined && value.end != Infinity && value.start != undefined) {
-
-      // when end specified
-      // no need to calculate range
-      // inclusive, starts with 0
-      callback(null, value.end + 1 - (value.start ? value.start : 0));
-
-    // not that fast snoopy
-    } else {
-      // still need to fetch file size from fs
-      fs.stat(value.path, function(err, stat) {
-
-        var fileSize;
-
-        if (err) {
-          callback(err);
-          return;
-        }
-
-        // update final size based on the range options
-        fileSize = stat.size - (value.start ? value.start : 0);
-        callback(null, fileSize);
-      });
-    }
-
-  // or http response
-  } else if (value.hasOwnProperty('httpVersion')) {
-    callback(null, +value.headers['content-length']);
-
-  // or request stream http://github.com/mikeal/request
-  } else if (value.hasOwnProperty('httpModule')) {
-    // wait till response come back
-    value.on('response', function(response) {
-      value.pause();
-      callback(null, +response.headers['content-length']);
-    });
-    value.resume();
-
-  // something else
-  } else {
-    callback('Unknown stream');
-  }
-};
-
-FormData.prototype._multiPartHeader = function(field, value, options) {
-  // custom header specified (as string)?
-  // it becomes responsible for boundary
-  // (e.g. to handle extra CRLFs on .NET servers)
-  if (typeof options.header == 'string') {
-    return options.header;
-  }
-
-  var contentDisposition = this._getContentDisposition(value, options);
-  var contentType = this._getContentType(value, options);
-
-  var contents = '';
-  var headers  = {
-    // add custom disposition as third element or keep it two elements if not
-    'Content-Disposition': ['form-data', 'name="' + field + '"'].concat(contentDisposition || []),
-    // if no content type. allow it to be empty array
-    'Content-Type': [].concat(contentType || [])
-  };
-
-  // allow custom headers.
-  if (typeof options.header == 'object') {
-    populate(headers, options.header);
-  }
-
-  var header;
-  for (var prop in headers) {
-    header = headers[prop];
-
-    // skip nullish headers.
-    if (header == null) {
-      continue;
-    }
-
-    // convert all headers to arrays.
-    if (!Array.isArray(header)) {
-      header = [header];
-    }
-
-    // add non-empty headers.
-    if (header.length) {
-      contents += prop + ': ' + header.join('; ') + FormData.LINE_BREAK;
-    }
-  }
-
-  return '--' + this.getBoundary() + FormData.LINE_BREAK + contents + FormData.LINE_BREAK;
-};
-
-FormData.prototype._getContentDisposition = function(value, options) {
-
-  var contentDisposition;
-
-  // custom filename takes precedence
-  // fs- and request- streams have path property
-  // formidable and the browser add a name property.
-  var filename = options.filename || value.name || value.path;
-
-  // or try http response
-  if (!filename && value.readable && value.hasOwnProperty('httpVersion')) {
-    filename = value.client._httpMessage.path;
-  }
-
-  if (filename) {
-    contentDisposition = 'filename="' + path.basename(filename) + '"';
-  }
-
-  return contentDisposition;
-};
-
-FormData.prototype._getContentType = function(value, options) {
-
-  // use custom content-type above all
-  var contentType = options.contentType;
-
-  // or try `name` from formidable, browser
-  if (!contentType && value.name) {
-    contentType = mime.lookup(value.name);
-  }
-
-  // or try `path` from fs-, request- streams
-  if (!contentType && value.path) {
-    contentType = mime.lookup(value.path);
-  }
-
-  // or if it's http-reponse
-  if (!contentType && value.readable && value.hasOwnProperty('httpVersion')) {
-    contentType = value.headers['content-type'];
-  }
-
-  // or guess it from the filename
-  if (!contentType && options.filename) {
-    contentType = mime.lookup(options.filename);
-  }
-
-  // fallback to the default content type if `value` is not simple value
-  if (!contentType && typeof value == 'object') {
-    contentType = FormData.DEFAULT_CONTENT_TYPE;
-  }
-
-  return contentType;
-};
-
-FormData.prototype._multiPartFooter = function() {
-  return function(next) {
-    var footer = FormData.LINE_BREAK;
-
-    var lastPart = (this._streams.length === 0);
-    if (lastPart) {
-      footer += this._lastBoundary();
-    }
-
-    next(footer);
-  }.bind(this);
-};
-
-FormData.prototype._lastBoundary = function() {
-  return '--' + this.getBoundary() + '--' + FormData.LINE_BREAK;
-};
-
-FormData.prototype.getHeaders = function(userHeaders) {
-  var header;
-  var formHeaders = {
-    'content-type': 'multipart/form-data; boundary=' + this.getBoundary()
-  };
-
-  for (header in userHeaders) {
-    if (userHeaders.hasOwnProperty(header)) {
-      formHeaders[header.toLowerCase()] = userHeaders[header];
-    }
-  }
-
-  return formHeaders;
-};
-
-FormData.prototype.getBoundary = function() {
-  if (!this._boundary) {
-    this._generateBoundary();
-  }
-
-  return this._boundary;
-};
-
-FormData.prototype._generateBoundary = function() {
-  // This generates a 50 character boundary similar to those used by Firefox.
-  // They are optimized for boyer-moore parsing.
-  var boundary = '--------------------------';
-  for (var i = 0; i < 24; i++) {
-    boundary += Math.floor(Math.random() * 10).toString(16);
-  }
-
-  this._boundary = boundary;
-};
-
-// Note: getLengthSync DOESN'T calculate streams length
-// As workaround one can calculate file size manually
-// and add it as knownLength option
-FormData.prototype.getLengthSync = function() {
-  var knownLength = this._overheadLength + this._valueLength;
-
-  // Don't get confused, there are 3 "internal" streams for each keyval pair
-  // so it basically checks if there is any value added to the form
-  if (this._streams.length) {
-    knownLength += this._lastBoundary().length;
-  }
-
-  // https://github.com/form-data/form-data/issues/40
-  if (!this.hasKnownLength()) {
-    // Some async length retrievers are present
-    // therefore synchronous length calculation is false.
-    // Please use getLength(callback) to get proper length
-    this._error(new Error('Cannot calculate proper length in synchronous way.'));
-  }
-
-  return knownLength;
-};
-
-// Public API to check if length of added values is known
-// https://github.com/form-data/form-data/issues/196
-// https://github.com/form-data/form-data/issues/262
-FormData.prototype.hasKnownLength = function() {
-  var hasKnownLength = true;
-
-  if (this._valuesToMeasure.length) {
-    hasKnownLength = false;
-  }
-
-  return hasKnownLength;
-};
-
-FormData.prototype.getLength = function(cb) {
-  var knownLength = this._overheadLength + this._valueLength;
-
-  if (this._streams.length) {
-    knownLength += this._lastBoundary().length;
-  }
-
-  if (!this._valuesToMeasure.length) {
-    process.nextTick(cb.bind(this, null, knownLength));
-    return;
-  }
-
-  asynckit.parallel(this._valuesToMeasure, this._lengthRetriever, function(err, values) {
-    if (err) {
-      cb(err);
-      return;
-    }
-
-    values.forEach(function(length) {
-      knownLength += length;
-    });
-
-    cb(null, knownLength);
-  });
-};
-
-FormData.prototype.submit = function(params, cb) {
-  var request
-    , options
-    , defaults = {method: 'post'}
-    ;
-
-  // parse provided url if it's string
-  // or treat it as options object
-  if (typeof params == 'string') {
-
-    params = parseUrl(params);
-    options = populate({
-      port: params.port,
-      path: params.pathname,
-      host: params.hostname
-    }, defaults);
-
-  // use custom params
-  } else {
-
-    options = populate(params, defaults);
-    // if no port provided use default one
-    if (!options.port) {
-      options.port = options.protocol == 'https:' ? 443 : 80;
-    }
-  }
-
-  // put that good code in getHeaders to some use
-  options.headers = this.getHeaders(params.headers);
-
-  // https if specified, fallback to http in any other case
-  if (options.protocol == 'https:') {
-    request = https.request(options);
-  } else {
-    request = http.request(options);
-  }
-
-  // get content length and fire away
-  this.getLength(function(err, length) {
-    if (err) {
-      this._error(err);
-      return;
-    }
-
-    // add content length
-    request.setHeader('Content-Length', length);
-
-    this.pipe(request);
-    if (cb) {
-      request.on('error', cb);
-      request.on('response', cb.bind(this, null));
-    }
-  }.bind(this));
-
-  return request;
-};
-
-FormData.prototype._error = function(err) {
-  if (!this.error) {
-    this.error = err;
-    this.pause();
-    this.emit('error', err);
-  }
-};
-
-FormData.prototype.toString = function () {
-  return '[object FormData]';
-};
-
-},{"./populate.js":147,"asynckit":50,"combined-stream":104,"fs":undefined,"http":undefined,"https":undefined,"mime-types":206,"path":undefined,"url":undefined,"util":undefined}],147:[function(require,module,exports){
-// populates missing values
-module.exports = function(dst, src) {
-
-  Object.keys(src).forEach(function(prop)
-  {
-    dst[prop] = dst[prop] || src[prop];
-  });
-
-  return dst;
-};
-
-},{}],148:[function(require,module,exports){
 module.exports={
   "id": "afterRequest.json#",
   "type": "object",
@@ -25307,7 +24849,7 @@ module.exports={
   }
 }
 
-},{}],149:[function(require,module,exports){
+},{}],147:[function(require,module,exports){
 module.exports={
   "id": "beforeRequest.json#",
   "type": "object",
@@ -25338,7 +24880,7 @@ module.exports={
   }
 }
 
-},{}],150:[function(require,module,exports){
+},{}],148:[function(require,module,exports){
 module.exports={
   "id": "browser.json#",
   "type": "object",
@@ -25359,7 +24901,7 @@ module.exports={
   }
 }
 
-},{}],151:[function(require,module,exports){
+},{}],149:[function(require,module,exports){
 module.exports={
   "id": "cache.json#",
   "properties": {
@@ -25381,7 +24923,7 @@ module.exports={
   }
 }
 
-},{}],152:[function(require,module,exports){
+},{}],150:[function(require,module,exports){
 module.exports={
   "id": "content.json#",
   "type": "object",
@@ -25411,7 +24953,7 @@ module.exports={
   }
 }
 
-},{}],153:[function(require,module,exports){
+},{}],151:[function(require,module,exports){
 module.exports={
   "id": "cookie.json#",
   "type": "object",
@@ -25448,7 +24990,7 @@ module.exports={
   }
 }
 
-},{}],154:[function(require,module,exports){
+},{}],152:[function(require,module,exports){
 module.exports={
   "id": "creator.json#",
   "type": "object",
@@ -25469,7 +25011,7 @@ module.exports={
   }
 }
 
-},{}],155:[function(require,module,exports){
+},{}],153:[function(require,module,exports){
 module.exports={
   "id": "entry.json#",
   "type": "object",
@@ -25523,7 +25065,7 @@ module.exports={
   }
 }
 
-},{}],156:[function(require,module,exports){
+},{}],154:[function(require,module,exports){
 module.exports={
   "id": "har.json#",
   "type": "object",
@@ -25537,7 +25079,7 @@ module.exports={
   }
 }
 
-},{}],157:[function(require,module,exports){
+},{}],155:[function(require,module,exports){
 module.exports={
   "id": "header.json#",
   "type": "object",
@@ -25558,7 +25100,7 @@ module.exports={
   }
 }
 
-},{}],158:[function(require,module,exports){
+},{}],156:[function(require,module,exports){
 'use strict'
 
 module.exports = {
@@ -25582,7 +25124,7 @@ module.exports = {
   timings: require('./timings.json')
 }
 
-},{"./afterRequest.json":148,"./beforeRequest.json":149,"./browser.json":150,"./cache.json":151,"./content.json":152,"./cookie.json":153,"./creator.json":154,"./entry.json":155,"./har.json":156,"./header.json":157,"./log.json":159,"./page.json":160,"./pageTimings.json":161,"./postData.json":162,"./query.json":163,"./request.json":164,"./response.json":165,"./timings.json":166}],159:[function(require,module,exports){
+},{"./afterRequest.json":146,"./beforeRequest.json":147,"./browser.json":148,"./cache.json":149,"./content.json":150,"./cookie.json":151,"./creator.json":152,"./entry.json":153,"./har.json":154,"./header.json":155,"./log.json":157,"./page.json":158,"./pageTimings.json":159,"./postData.json":160,"./query.json":161,"./request.json":162,"./response.json":163,"./timings.json":164}],157:[function(require,module,exports){
 module.exports={
   "id": "log.json#",
   "type": "object",
@@ -25619,7 +25161,7 @@ module.exports={
   }
 }
 
-},{}],160:[function(require,module,exports){
+},{}],158:[function(require,module,exports){
 module.exports={
   "id": "page.json#",
   "type": "object",
@@ -25652,7 +25194,7 @@ module.exports={
   }
 }
 
-},{}],161:[function(require,module,exports){
+},{}],159:[function(require,module,exports){
 module.exports={
   "id": "pageTimings.json#",
   "type": "object",
@@ -25671,7 +25213,7 @@ module.exports={
   }
 }
 
-},{}],162:[function(require,module,exports){
+},{}],160:[function(require,module,exports){
 module.exports={
   "id": "postData.json#",
   "type": "object",
@@ -25715,7 +25257,7 @@ module.exports={
   }
 }
 
-},{}],163:[function(require,module,exports){
+},{}],161:[function(require,module,exports){
 module.exports={
   "id": "query.json#",
   "type": "object",
@@ -25736,7 +25278,7 @@ module.exports={
   }
 }
 
-},{}],164:[function(require,module,exports){
+},{}],162:[function(require,module,exports){
 module.exports={
   "id": "request.json#",
   "type": "object",
@@ -25794,7 +25336,7 @@ module.exports={
   }
 }
 
-},{}],165:[function(require,module,exports){
+},{}],163:[function(require,module,exports){
 module.exports={
   "id": "response.json#",
   "type": "object",
@@ -25849,7 +25391,7 @@ module.exports={
   }
 }
 
-},{}],166:[function(require,module,exports){
+},{}],164:[function(require,module,exports){
 module.exports={
   "id": "timings.json#",
   "required": [
@@ -25892,7 +25434,7 @@ module.exports={
   }
 }
 
-},{}],167:[function(require,module,exports){
+},{}],165:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -25915,7 +25457,7 @@ function HARError(errors) {
 
 HARError.prototype = Error.prototype;
 module.exports = exports['default'];
-},{}],168:[function(require,module,exports){
+},{}],166:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -26048,7 +25590,7 @@ function response(data) {
 function timings(data) {
   return validate('timings', data);
 }
-},{"./error":167,"ajv":1,"har-schema":158}],169:[function(require,module,exports){
+},{"./error":165,"ajv":1,"har-schema":156}],167:[function(require,module,exports){
 // Load modules
 
 var Url = require('url');
@@ -26419,7 +25961,7 @@ exports.message = function (host, port, message, options) {
 
 
 
-},{"./crypto":170,"./utils":173,"cryptiles":105,"hoek":176,"url":undefined}],170:[function(require,module,exports){
+},{"./crypto":168,"./utils":171,"cryptiles":105,"hoek":174,"url":undefined}],168:[function(require,module,exports){
 // Load modules
 
 var Crypto = require('crypto');
@@ -26547,7 +26089,7 @@ exports.timestampMessage = function (credentials, localtimeOffsetMsec) {
     return { ts: now, tsm: tsm };
 };
 
-},{"./utils":173,"crypto":undefined,"url":undefined}],171:[function(require,module,exports){
+},{"./utils":171,"crypto":undefined,"url":undefined}],169:[function(require,module,exports){
 // Export sub-modules
 
 exports.error = exports.Error = require('boom');
@@ -26564,7 +26106,7 @@ exports.uri = {
 };
 
 
-},{"./client":169,"./crypto":170,"./server":172,"./utils":173,"boom":101,"sntp":233}],172:[function(require,module,exports){
+},{"./client":167,"./crypto":168,"./server":170,"./utils":171,"boom":101,"sntp":233}],170:[function(require,module,exports){
 // Load modules
 
 var Boom = require('boom');
@@ -27114,7 +26656,7 @@ internals.nonceFunc = function (key, nonce, ts, nonceCallback) {
     return nonceCallback();         // No validation
 };
 
-},{"./crypto":170,"./utils":173,"boom":101,"cryptiles":105,"hoek":176}],173:[function(require,module,exports){
+},{"./crypto":168,"./utils":171,"boom":101,"cryptiles":105,"hoek":174}],171:[function(require,module,exports){
 // Load modules
 
 var Sntp = require('sntp');
@@ -27300,50 +26842,31 @@ exports.unauthorized = function (message, attributes) {
 };
 
 
-},{"../package.json":174,"boom":101,"sntp":233}],174:[function(require,module,exports){
+},{"../package.json":172,"boom":101,"sntp":233}],172:[function(require,module,exports){
 module.exports={
-  "_args": [
-    [
-      {
-        "raw": "hawk@~3.1.3",
-        "scope": null,
-        "escapedName": "hawk",
-        "name": "hawk",
-        "rawSpec": "~3.1.3",
-        "spec": ">=3.1.3 <3.2.0",
-        "type": "range"
-      },
-      "/Users/ddascal/Projects/bladerunner/io-event-logging-test/node_modules/request"
-    ]
-  ],
-  "_from": "hawk@>=3.1.3 <3.2.0",
+  "_from": "hawk@~3.1.3",
   "_id": "hawk@3.1.3",
-  "_inCache": true,
+  "_inBundle": false,
+  "_integrity": "sha1-B4REvXwWQLD+VA0sm3PVlnjo4cQ=",
   "_location": "/hawk",
-  "_nodeVersion": "5.4.1",
-  "_npmUser": {
-    "name": "hueniverse",
-    "email": "eran@hammer.io"
-  },
-  "_npmVersion": "3.3.12",
   "_phantomChildren": {},
   "_requested": {
+    "type": "range",
+    "registry": true,
     "raw": "hawk@~3.1.3",
-    "scope": null,
-    "escapedName": "hawk",
     "name": "hawk",
+    "escapedName": "hawk",
     "rawSpec": "~3.1.3",
-    "spec": ">=3.1.3 <3.2.0",
-    "type": "range"
+    "saveSpec": null,
+    "fetchSpec": "~3.1.3"
   },
   "_requiredBy": [
     "/request"
   ],
   "_resolved": "https://registry.npmjs.org/hawk/-/hawk-3.1.3.tgz",
   "_shasum": "078444bd7c1640b0fe540d2c9b73d59678e8e1c4",
-  "_shrinkwrap": null,
   "_spec": "hawk@~3.1.3",
-  "_where": "/Users/ddascal/Projects/bladerunner/io-event-logging-test/node_modules/request",
+  "_where": "D:\\code\\2017\\github\\io-event-logging-test\\node_modules\\request",
   "author": {
     "name": "Eran Hammer",
     "email": "eran@hammer.io",
@@ -27353,6 +26876,7 @@ module.exports={
   "bugs": {
     "url": "https://github.com/hueniverse/hawk/issues"
   },
+  "bundleDependencies": false,
   "contributors": [],
   "dependencies": {
     "boom": "2.x.x",
@@ -27360,20 +26884,15 @@ module.exports={
     "hoek": "2.x.x",
     "sntp": "1.x.x"
   },
+  "deprecated": false,
   "description": "HTTP Hawk Authentication Scheme",
   "devDependencies": {
     "code": "1.x.x",
     "lab": "5.x.x"
   },
-  "directories": {},
-  "dist": {
-    "shasum": "078444bd7c1640b0fe540d2c9b73d59678e8e1c4",
-    "tarball": "https://registry.npmjs.org/hawk/-/hawk-3.1.3.tgz"
-  },
   "engines": {
     "node": ">=0.10.32"
   },
-  "gitHead": "2f0b93b34ed9b0ebc865838ef70c6a4035591430",
   "homepage": "https://github.com/hueniverse/hawk#readme",
   "keywords": [
     "http",
@@ -27383,15 +26902,7 @@ module.exports={
   ],
   "license": "BSD-3-Clause",
   "main": "lib/index.js",
-  "maintainers": [
-    {
-      "name": "hueniverse",
-      "email": "eran@hueniverse.com"
-    }
-  ],
   "name": "hawk",
-  "optionalDependencies": {},
-  "readme": "ERROR: No README data found!",
   "repository": {
     "type": "git",
     "url": "git://github.com/hueniverse/hawk.git"
@@ -27403,7 +26914,7 @@ module.exports={
   "version": "3.1.3"
 }
 
-},{}],175:[function(require,module,exports){
+},{}],173:[function(require,module,exports){
 // Declare internals
 
 var internals = {};
@@ -27537,7 +27048,7 @@ internals.safeCharCodes = (function () {
     return safe;
 }());
 
-},{}],176:[function(require,module,exports){
+},{}],174:[function(require,module,exports){
 // Load modules
 
 var Crypto = require('crypto');
@@ -28532,7 +28043,7 @@ exports.shallow = function (source) {
     return target;
 };
 
-},{"./escape":175,"crypto":undefined,"path":undefined,"util":undefined}],177:[function(require,module,exports){
+},{"./escape":173,"crypto":undefined,"path":undefined,"util":undefined}],175:[function(require,module,exports){
 // Copyright 2015 Joyent, Inc.
 
 var parser = require('./parser');
@@ -28563,7 +28074,7 @@ module.exports = {
   verifyHMAC: verify.verifyHMAC
 };
 
-},{"./parser":178,"./signer":179,"./utils":180,"./verify":181}],178:[function(require,module,exports){
+},{"./parser":176,"./signer":177,"./utils":178,"./verify":179}],176:[function(require,module,exports){
 // Copyright 2012 Joyent, Inc.  All rights reserved.
 
 var assert = require('assert-plus');
@@ -28883,7 +28394,7 @@ module.exports = {
 
 };
 
-},{"./utils":180,"assert-plus":49,"util":undefined}],179:[function(require,module,exports){
+},{"./utils":178,"assert-plus":49,"util":undefined}],177:[function(require,module,exports){
 // Copyright 2012 Joyent, Inc.  All rights reserved.
 
 var assert = require('assert-plus');
@@ -29284,7 +28795,7 @@ module.exports = {
 
 };
 
-},{"./utils":180,"assert-plus":49,"crypto":undefined,"http":undefined,"jsprim":190,"sshpk":252,"util":undefined}],180:[function(require,module,exports){
+},{"./utils":178,"assert-plus":49,"crypto":undefined,"http":undefined,"jsprim":188,"sshpk":252,"util":undefined}],178:[function(require,module,exports){
 // Copyright 2012 Joyent, Inc.  All rights reserved.
 
 var assert = require('assert-plus');
@@ -29398,7 +28909,7 @@ module.exports = {
   }
 };
 
-},{"assert-plus":49,"sshpk":252,"util":undefined}],181:[function(require,module,exports){
+},{"assert-plus":49,"sshpk":252,"util":undefined}],179:[function(require,module,exports){
 // Copyright 2015 Joyent, Inc.
 
 var assert = require('assert-plus');
@@ -29488,7 +28999,7 @@ module.exports = {
   }
 };
 
-},{"./utils":180,"assert-plus":49,"crypto":undefined,"sshpk":252}],182:[function(require,module,exports){
+},{"./utils":178,"assert-plus":49,"crypto":undefined,"sshpk":252}],180:[function(require,module,exports){
 module.exports      = isTypedArray
 isTypedArray.strict = isStrictTypedArray
 isTypedArray.loose  = isLooseTypedArray
@@ -29531,7 +29042,7 @@ function isLooseTypedArray(arr) {
   return names[toString.call(arr)]
 }
 
-},{}],183:[function(require,module,exports){
+},{}],181:[function(require,module,exports){
 var stream = require('stream')
 
 
@@ -29560,7 +29071,7 @@ module.exports.isReadable = isReadable
 module.exports.isWritable = isWritable
 module.exports.isDuplex   = isDuplex
 
-},{"stream":undefined}],184:[function(require,module,exports){
+},{"stream":undefined}],182:[function(require,module,exports){
 (function(){
 
     // Copyright (c) 2005  Tom Wu
@@ -30919,7 +30430,7 @@ module.exports.isDuplex   = isDuplex
 
 }).call(this);
 
-},{}],185:[function(require,module,exports){
+},{}],183:[function(require,module,exports){
 /**
  * JSONSchema Validator - Validates JavaScript objects using JSON Schemas
  *	(http://www.json.com/json-schema-proposal/)
@@ -31194,7 +30705,7 @@ exports.mustBeValid = function(result){
 return exports;
 }));
 
-},{}],186:[function(require,module,exports){
+},{}],184:[function(require,module,exports){
 exports = module.exports = stringify
 exports.getSerialize = serializer
 
@@ -31223,11 +30734,11 @@ function serializer(replacer, cycleReplacer) {
   }
 }
 
-},{}],187:[function(require,module,exports){
+},{}],185:[function(require,module,exports){
 exports.parse = require('./lib/parse');
 exports.stringify = require('./lib/stringify');
 
-},{"./lib/parse":188,"./lib/stringify":189}],188:[function(require,module,exports){
+},{"./lib/parse":186,"./lib/stringify":187}],186:[function(require,module,exports){
 var at, // The index of the current character
     ch, // The current character
     escapee = {
@@ -31502,7 +31013,7 @@ module.exports = function (source, reviver) {
     }({'': result}, '')) : result;
 };
 
-},{}],189:[function(require,module,exports){
+},{}],187:[function(require,module,exports){
 var cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
     escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
     gap,
@@ -31658,7 +31169,7 @@ module.exports = function (value, replacer, space) {
     return str('', {'': value});
 };
 
-},{}],190:[function(require,module,exports){
+},{}],188:[function(require,module,exports){
 /*
  * lib/jsprim.js: utilities for primitive JavaScript types
  */
@@ -32395,7 +31906,7 @@ function mergeObjects(provided, overrides, defaults)
 	return (rv);
 }
 
-},{"assert-plus":191,"extsprintf":144,"json-schema":185,"util":undefined,"verror":276}],191:[function(require,module,exports){
+},{"assert-plus":189,"extsprintf":144,"json-schema":183,"util":undefined,"verror":276}],189:[function(require,module,exports){
 // Copyright (c) 2012, Mark Cavage. All rights reserved.
 // Copyright 2015 Joyent, Inc.
 
@@ -32608,7 +32119,7 @@ function _setExports(ndebug) {
 
 module.exports = _setExports(process.env.NODE_NDEBUG);
 
-},{"assert":undefined,"stream":undefined,"util":undefined}],192:[function(require,module,exports){
+},{"assert":undefined,"stream":undefined,"util":undefined}],190:[function(require,module,exports){
 var root = require('./_root');
 
 /** Built-in value references. */
@@ -32616,7 +32127,7 @@ var Symbol = root.Symbol;
 
 module.exports = Symbol;
 
-},{"./_root":197}],193:[function(require,module,exports){
+},{"./_root":195}],191:[function(require,module,exports){
 var Symbol = require('./_Symbol'),
     getRawTag = require('./_getRawTag'),
     objectToString = require('./_objectToString');
@@ -32646,13 +32157,13 @@ function baseGetTag(value) {
 
 module.exports = baseGetTag;
 
-},{"./_Symbol":192,"./_getRawTag":195,"./_objectToString":196}],194:[function(require,module,exports){
+},{"./_Symbol":190,"./_getRawTag":193,"./_objectToString":194}],192:[function(require,module,exports){
 /** Detect free variable `global` from Node.js. */
 var freeGlobal = typeof global == 'object' && global && global.Object === Object && global;
 
 module.exports = freeGlobal;
 
-},{}],195:[function(require,module,exports){
+},{}],193:[function(require,module,exports){
 var Symbol = require('./_Symbol');
 
 /** Used for built-in method references. */
@@ -32700,7 +32211,7 @@ function getRawTag(value) {
 
 module.exports = getRawTag;
 
-},{"./_Symbol":192}],196:[function(require,module,exports){
+},{"./_Symbol":190}],194:[function(require,module,exports){
 /** Used for built-in method references. */
 var objectProto = Object.prototype;
 
@@ -32724,7 +32235,7 @@ function objectToString(value) {
 
 module.exports = objectToString;
 
-},{}],197:[function(require,module,exports){
+},{}],195:[function(require,module,exports){
 var freeGlobal = require('./_freeGlobal');
 
 /** Detect free variable `self`. */
@@ -32735,7 +32246,7 @@ var root = freeGlobal || freeSelf || Function('return this')();
 
 module.exports = root;
 
-},{"./_freeGlobal":194}],198:[function(require,module,exports){
+},{"./_freeGlobal":192}],196:[function(require,module,exports){
 /**
  * Checks if `value` is classified as an `Array` object.
  *
@@ -32763,7 +32274,7 @@ var isArray = Array.isArray;
 
 module.exports = isArray;
 
-},{}],199:[function(require,module,exports){
+},{}],197:[function(require,module,exports){
 var baseGetTag = require('./_baseGetTag'),
     isObject = require('./isObject');
 
@@ -32802,7 +32313,7 @@ function isFunction(value) {
 
 module.exports = isFunction;
 
-},{"./_baseGetTag":193,"./isObject":200}],200:[function(require,module,exports){
+},{"./_baseGetTag":191,"./isObject":198}],198:[function(require,module,exports){
 /**
  * Checks if `value` is the
  * [language type](http://www.ecma-international.org/ecma-262/7.0/#sec-ecmascript-language-types)
@@ -32835,7 +32346,7 @@ function isObject(value) {
 
 module.exports = isObject;
 
-},{}],201:[function(require,module,exports){
+},{}],199:[function(require,module,exports){
 /**
  * Checks if `value` is object-like. A value is object-like if it's not `null`
  * and has a `typeof` result of "object".
@@ -32866,7 +32377,7 @@ function isObjectLike(value) {
 
 module.exports = isObjectLike;
 
-},{}],202:[function(require,module,exports){
+},{}],200:[function(require,module,exports){
 var baseGetTag = require('./_baseGetTag'),
     isArray = require('./isArray'),
     isObjectLike = require('./isObjectLike');
@@ -32898,7 +32409,7 @@ function isString(value) {
 
 module.exports = isString;
 
-},{"./_baseGetTag":193,"./isArray":198,"./isObjectLike":201}],203:[function(require,module,exports){
+},{"./_baseGetTag":191,"./isArray":196,"./isObjectLike":199}],201:[function(require,module,exports){
 /**
  * Checks if `value` is `undefined`.
  *
@@ -32922,7 +32433,7 @@ function isUndefined(value) {
 
 module.exports = isUndefined;
 
-},{}],204:[function(require,module,exports){
+},{}],202:[function(require,module,exports){
 module.exports={
   "application/1d-interleaved-parityfec": {
     "source": "iana"
@@ -39729,7 +39240,7 @@ module.exports={
   }
 }
 
-},{}],205:[function(require,module,exports){
+},{}],203:[function(require,module,exports){
 /*!
  * mime-db
  * Copyright(c) 2014 Jonathan Ong
@@ -39742,7 +39253,7 @@ module.exports={
 
 module.exports = require('./db.json')
 
-},{"./db.json":204}],206:[function(require,module,exports){
+},{"./db.json":202}],204:[function(require,module,exports){
 /*!
  * mime-types
  * Copyright(c) 2014 Jonathan Ong
@@ -39932,7 +39443,7 @@ function populateMaps (extensions, types) {
   })
 }
 
-},{"mime-db":205,"path":undefined}],207:[function(require,module,exports){
+},{"mime-db":203,"path":undefined}],205:[function(require,module,exports){
 var crypto = require('crypto')
   , qs = require('querystring')
   ;
@@ -40070,7 +39581,7 @@ exports.rfc3986 = rfc3986
 exports.generateBase = generateBase
 
 
-},{"crypto":undefined,"querystring":undefined}],208:[function(require,module,exports){
+},{"crypto":undefined,"querystring":undefined}],206:[function(require,module,exports){
 // Generated by CoffeeScript 1.7.1
 (function() {
   var getNanoSeconds, hrtime, loadTime;
@@ -40104,7 +39615,7 @@ exports.generateBase = generateBase
 
 }).call(this);
 
-},{}],209:[function(require,module,exports){
+},{}],207:[function(require,module,exports){
 /**
  * Expose `PriorityQueue`.
  */
@@ -40278,602 +39789,7 @@ PriorityQueue.prototype._swap = function(a, b) {
   this._elements[b] = aux;
 };
 
-},{}],210:[function(require,module,exports){
-'use strict';
-
-var replace = String.prototype.replace;
-var percentTwenties = /%20/g;
-
-module.exports = {
-    'default': 'RFC3986',
-    formatters: {
-        RFC1738: function (value) {
-            return replace.call(value, percentTwenties, '+');
-        },
-        RFC3986: function (value) {
-            return value;
-        }
-    },
-    RFC1738: 'RFC1738',
-    RFC3986: 'RFC3986'
-};
-
-},{}],211:[function(require,module,exports){
-'use strict';
-
-var stringify = require('./stringify');
-var parse = require('./parse');
-var formats = require('./formats');
-
-module.exports = {
-    formats: formats,
-    parse: parse,
-    stringify: stringify
-};
-
-},{"./formats":210,"./parse":212,"./stringify":213}],212:[function(require,module,exports){
-'use strict';
-
-var utils = require('./utils');
-
-var has = Object.prototype.hasOwnProperty;
-
-var defaults = {
-    allowDots: false,
-    allowPrototypes: false,
-    arrayLimit: 20,
-    decoder: utils.decode,
-    delimiter: '&',
-    depth: 5,
-    parameterLimit: 1000,
-    plainObjects: false,
-    strictNullHandling: false
-};
-
-var parseValues = function parseQueryStringValues(str, options) {
-    var obj = {};
-    var parts = str.split(options.delimiter, options.parameterLimit === Infinity ? undefined : options.parameterLimit);
-
-    for (var i = 0; i < parts.length; ++i) {
-        var part = parts[i];
-        var pos = part.indexOf(']=') === -1 ? part.indexOf('=') : part.indexOf(']=') + 1;
-
-        var key, val;
-        if (pos === -1) {
-            key = options.decoder(part);
-            val = options.strictNullHandling ? null : '';
-        } else {
-            key = options.decoder(part.slice(0, pos));
-            val = options.decoder(part.slice(pos + 1));
-        }
-        if (has.call(obj, key)) {
-            obj[key] = [].concat(obj[key]).concat(val);
-        } else {
-            obj[key] = val;
-        }
-    }
-
-    return obj;
-};
-
-var parseObject = function parseObjectRecursive(chain, val, options) {
-    if (!chain.length) {
-        return val;
-    }
-
-    var root = chain.shift();
-
-    var obj;
-    if (root === '[]') {
-        obj = [];
-        obj = obj.concat(parseObject(chain, val, options));
-    } else {
-        obj = options.plainObjects ? Object.create(null) : {};
-        var cleanRoot = root.charAt(0) === '[' && root.charAt(root.length - 1) === ']' ? root.slice(1, -1) : root;
-        var index = parseInt(cleanRoot, 10);
-        if (
-            !isNaN(index) &&
-            root !== cleanRoot &&
-            String(index) === cleanRoot &&
-            index >= 0 &&
-            (options.parseArrays && index <= options.arrayLimit)
-        ) {
-            obj = [];
-            obj[index] = parseObject(chain, val, options);
-        } else {
-            obj[cleanRoot] = parseObject(chain, val, options);
-        }
-    }
-
-    return obj;
-};
-
-var parseKeys = function parseQueryStringKeys(givenKey, val, options) {
-    if (!givenKey) {
-        return;
-    }
-
-    // Transform dot notation to bracket notation
-    var key = options.allowDots ? givenKey.replace(/\.([^.[]+)/g, '[$1]') : givenKey;
-
-    // The regex chunks
-
-    var brackets = /(\[[^[\]]*])/;
-    var child = /(\[[^[\]]*])/g;
-
-    // Get the parent
-
-    var segment = brackets.exec(key);
-    var parent = segment ? key.slice(0, segment.index) : key;
-
-    // Stash the parent if it exists
-
-    var keys = [];
-    if (parent) {
-        // If we aren't using plain objects, optionally prefix keys
-        // that would overwrite object prototype properties
-        if (!options.plainObjects && has.call(Object.prototype, parent)) {
-            if (!options.allowPrototypes) {
-                return;
-            }
-        }
-
-        keys.push(parent);
-    }
-
-    // Loop through children appending to the array until we hit depth
-
-    var i = 0;
-    while ((segment = child.exec(key)) !== null && i < options.depth) {
-        i += 1;
-        if (!options.plainObjects && has.call(Object.prototype, segment[1].slice(1, -1))) {
-            if (!options.allowPrototypes) {
-                return;
-            }
-        }
-        keys.push(segment[1]);
-    }
-
-    // If there's a remainder, just add whatever is left
-
-    if (segment) {
-        keys.push('[' + key.slice(segment.index) + ']');
-    }
-
-    return parseObject(keys, val, options);
-};
-
-module.exports = function (str, opts) {
-    var options = opts || {};
-
-    if (options.decoder !== null && options.decoder !== undefined && typeof options.decoder !== 'function') {
-        throw new TypeError('Decoder has to be a function.');
-    }
-
-    options.delimiter = typeof options.delimiter === 'string' || utils.isRegExp(options.delimiter) ? options.delimiter : defaults.delimiter;
-    options.depth = typeof options.depth === 'number' ? options.depth : defaults.depth;
-    options.arrayLimit = typeof options.arrayLimit === 'number' ? options.arrayLimit : defaults.arrayLimit;
-    options.parseArrays = options.parseArrays !== false;
-    options.decoder = typeof options.decoder === 'function' ? options.decoder : defaults.decoder;
-    options.allowDots = typeof options.allowDots === 'boolean' ? options.allowDots : defaults.allowDots;
-    options.plainObjects = typeof options.plainObjects === 'boolean' ? options.plainObjects : defaults.plainObjects;
-    options.allowPrototypes = typeof options.allowPrototypes === 'boolean' ? options.allowPrototypes : defaults.allowPrototypes;
-    options.parameterLimit = typeof options.parameterLimit === 'number' ? options.parameterLimit : defaults.parameterLimit;
-    options.strictNullHandling = typeof options.strictNullHandling === 'boolean' ? options.strictNullHandling : defaults.strictNullHandling;
-
-    if (str === '' || str === null || typeof str === 'undefined') {
-        return options.plainObjects ? Object.create(null) : {};
-    }
-
-    var tempObj = typeof str === 'string' ? parseValues(str, options) : str;
-    var obj = options.plainObjects ? Object.create(null) : {};
-
-    // Iterate over the keys and setup the new object
-
-    var keys = Object.keys(tempObj);
-    for (var i = 0; i < keys.length; ++i) {
-        var key = keys[i];
-        var newObj = parseKeys(key, tempObj[key], options);
-        obj = utils.merge(obj, newObj, options);
-    }
-
-    return utils.compact(obj);
-};
-
-},{"./utils":214}],213:[function(require,module,exports){
-'use strict';
-
-var utils = require('./utils');
-var formats = require('./formats');
-
-var arrayPrefixGenerators = {
-    brackets: function brackets(prefix) { // eslint-disable-line func-name-matching
-        return prefix + '[]';
-    },
-    indices: function indices(prefix, key) { // eslint-disable-line func-name-matching
-        return prefix + '[' + key + ']';
-    },
-    repeat: function repeat(prefix) { // eslint-disable-line func-name-matching
-        return prefix;
-    }
-};
-
-var toISO = Date.prototype.toISOString;
-
-var defaults = {
-    delimiter: '&',
-    encode: true,
-    encoder: utils.encode,
-    encodeValuesOnly: false,
-    serializeDate: function serializeDate(date) { // eslint-disable-line func-name-matching
-        return toISO.call(date);
-    },
-    skipNulls: false,
-    strictNullHandling: false
-};
-
-var stringify = function stringify( // eslint-disable-line func-name-matching
-    object,
-    prefix,
-    generateArrayPrefix,
-    strictNullHandling,
-    skipNulls,
-    encoder,
-    filter,
-    sort,
-    allowDots,
-    serializeDate,
-    formatter,
-    encodeValuesOnly
-) {
-    var obj = object;
-    if (typeof filter === 'function') {
-        obj = filter(prefix, obj);
-    } else if (obj instanceof Date) {
-        obj = serializeDate(obj);
-    } else if (obj === null) {
-        if (strictNullHandling) {
-            return encoder && !encodeValuesOnly ? encoder(prefix) : prefix;
-        }
-
-        obj = '';
-    }
-
-    if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean' || utils.isBuffer(obj)) {
-        if (encoder) {
-            var keyValue = encodeValuesOnly ? prefix : encoder(prefix);
-            return [formatter(keyValue) + '=' + formatter(encoder(obj))];
-        }
-        return [formatter(prefix) + '=' + formatter(String(obj))];
-    }
-
-    var values = [];
-
-    if (typeof obj === 'undefined') {
-        return values;
-    }
-
-    var objKeys;
-    if (Array.isArray(filter)) {
-        objKeys = filter;
-    } else {
-        var keys = Object.keys(obj);
-        objKeys = sort ? keys.sort(sort) : keys;
-    }
-
-    for (var i = 0; i < objKeys.length; ++i) {
-        var key = objKeys[i];
-
-        if (skipNulls && obj[key] === null) {
-            continue;
-        }
-
-        if (Array.isArray(obj)) {
-            values = values.concat(stringify(
-                obj[key],
-                generateArrayPrefix(prefix, key),
-                generateArrayPrefix,
-                strictNullHandling,
-                skipNulls,
-                encoder,
-                filter,
-                sort,
-                allowDots,
-                serializeDate,
-                formatter,
-                encodeValuesOnly
-            ));
-        } else {
-            values = values.concat(stringify(
-                obj[key],
-                prefix + (allowDots ? '.' + key : '[' + key + ']'),
-                generateArrayPrefix,
-                strictNullHandling,
-                skipNulls,
-                encoder,
-                filter,
-                sort,
-                allowDots,
-                serializeDate,
-                formatter,
-                encodeValuesOnly
-            ));
-        }
-    }
-
-    return values;
-};
-
-module.exports = function (object, opts) {
-    var obj = object;
-    var options = opts || {};
-
-    if (options.encoder !== null && options.encoder !== undefined && typeof options.encoder !== 'function') {
-        throw new TypeError('Encoder has to be a function.');
-    }
-
-    var delimiter = typeof options.delimiter === 'undefined' ? defaults.delimiter : options.delimiter;
-    var strictNullHandling = typeof options.strictNullHandling === 'boolean' ? options.strictNullHandling : defaults.strictNullHandling;
-    var skipNulls = typeof options.skipNulls === 'boolean' ? options.skipNulls : defaults.skipNulls;
-    var encode = typeof options.encode === 'boolean' ? options.encode : defaults.encode;
-    var encoder = typeof options.encoder === 'function' ? options.encoder : defaults.encoder;
-    var sort = typeof options.sort === 'function' ? options.sort : null;
-    var allowDots = typeof options.allowDots === 'undefined' ? false : options.allowDots;
-    var serializeDate = typeof options.serializeDate === 'function' ? options.serializeDate : defaults.serializeDate;
-    var encodeValuesOnly = typeof options.encodeValuesOnly === 'boolean' ? options.encodeValuesOnly : defaults.encodeValuesOnly;
-    if (typeof options.format === 'undefined') {
-        options.format = formats.default;
-    } else if (!Object.prototype.hasOwnProperty.call(formats.formatters, options.format)) {
-        throw new TypeError('Unknown format option provided.');
-    }
-    var formatter = formats.formatters[options.format];
-    var objKeys;
-    var filter;
-
-    if (typeof options.filter === 'function') {
-        filter = options.filter;
-        obj = filter('', obj);
-    } else if (Array.isArray(options.filter)) {
-        filter = options.filter;
-        objKeys = filter;
-    }
-
-    var keys = [];
-
-    if (typeof obj !== 'object' || obj === null) {
-        return '';
-    }
-
-    var arrayFormat;
-    if (options.arrayFormat in arrayPrefixGenerators) {
-        arrayFormat = options.arrayFormat;
-    } else if ('indices' in options) {
-        arrayFormat = options.indices ? 'indices' : 'repeat';
-    } else {
-        arrayFormat = 'indices';
-    }
-
-    var generateArrayPrefix = arrayPrefixGenerators[arrayFormat];
-
-    if (!objKeys) {
-        objKeys = Object.keys(obj);
-    }
-
-    if (sort) {
-        objKeys.sort(sort);
-    }
-
-    for (var i = 0; i < objKeys.length; ++i) {
-        var key = objKeys[i];
-
-        if (skipNulls && obj[key] === null) {
-            continue;
-        }
-
-        keys = keys.concat(stringify(
-            obj[key],
-            key,
-            generateArrayPrefix,
-            strictNullHandling,
-            skipNulls,
-            encode ? encoder : null,
-            filter,
-            sort,
-            allowDots,
-            serializeDate,
-            formatter,
-            encodeValuesOnly
-        ));
-    }
-
-    return keys.join(delimiter);
-};
-
-},{"./formats":210,"./utils":214}],214:[function(require,module,exports){
-'use strict';
-
-var has = Object.prototype.hasOwnProperty;
-
-var hexTable = (function () {
-    var array = [];
-    for (var i = 0; i < 256; ++i) {
-        array.push('%' + ((i < 16 ? '0' : '') + i.toString(16)).toUpperCase());
-    }
-
-    return array;
-}());
-
-exports.arrayToObject = function (source, options) {
-    var obj = options && options.plainObjects ? Object.create(null) : {};
-    for (var i = 0; i < source.length; ++i) {
-        if (typeof source[i] !== 'undefined') {
-            obj[i] = source[i];
-        }
-    }
-
-    return obj;
-};
-
-exports.merge = function (target, source, options) {
-    if (!source) {
-        return target;
-    }
-
-    if (typeof source !== 'object') {
-        if (Array.isArray(target)) {
-            target.push(source);
-        } else if (typeof target === 'object') {
-            if (options.plainObjects || options.allowPrototypes || !has.call(Object.prototype, source)) {
-                target[source] = true;
-            }
-        } else {
-            return [target, source];
-        }
-
-        return target;
-    }
-
-    if (typeof target !== 'object') {
-        return [target].concat(source);
-    }
-
-    var mergeTarget = target;
-    if (Array.isArray(target) && !Array.isArray(source)) {
-        mergeTarget = exports.arrayToObject(target, options);
-    }
-
-    if (Array.isArray(target) && Array.isArray(source)) {
-        source.forEach(function (item, i) {
-            if (has.call(target, i)) {
-                if (target[i] && typeof target[i] === 'object') {
-                    target[i] = exports.merge(target[i], item, options);
-                } else {
-                    target.push(item);
-                }
-            } else {
-                target[i] = item;
-            }
-        });
-        return target;
-    }
-
-    return Object.keys(source).reduce(function (acc, key) {
-        var value = source[key];
-
-        if (Object.prototype.hasOwnProperty.call(acc, key)) {
-            acc[key] = exports.merge(acc[key], value, options);
-        } else {
-            acc[key] = value;
-        }
-        return acc;
-    }, mergeTarget);
-};
-
-exports.decode = function (str) {
-    try {
-        return decodeURIComponent(str.replace(/\+/g, ' '));
-    } catch (e) {
-        return str;
-    }
-};
-
-exports.encode = function (str) {
-    // This code was originally written by Brian White (mscdex) for the io.js core querystring library.
-    // It has been adapted here for stricter adherence to RFC 3986
-    if (str.length === 0) {
-        return str;
-    }
-
-    var string = typeof str === 'string' ? str : String(str);
-
-    var out = '';
-    for (var i = 0; i < string.length; ++i) {
-        var c = string.charCodeAt(i);
-
-        if (
-            c === 0x2D || // -
-            c === 0x2E || // .
-            c === 0x5F || // _
-            c === 0x7E || // ~
-            (c >= 0x30 && c <= 0x39) || // 0-9
-            (c >= 0x41 && c <= 0x5A) || // a-z
-            (c >= 0x61 && c <= 0x7A) // A-Z
-        ) {
-            out += string.charAt(i);
-            continue;
-        }
-
-        if (c < 0x80) {
-            out = out + hexTable[c];
-            continue;
-        }
-
-        if (c < 0x800) {
-            out = out + (hexTable[0xC0 | (c >> 6)] + hexTable[0x80 | (c & 0x3F)]);
-            continue;
-        }
-
-        if (c < 0xD800 || c >= 0xE000) {
-            out = out + (hexTable[0xE0 | (c >> 12)] + hexTable[0x80 | ((c >> 6) & 0x3F)] + hexTable[0x80 | (c & 0x3F)]);
-            continue;
-        }
-
-        i += 1;
-        c = 0x10000 + (((c & 0x3FF) << 10) | (string.charCodeAt(i) & 0x3FF));
-        out += hexTable[0xF0 | (c >> 18)] + hexTable[0x80 | ((c >> 12) & 0x3F)] + hexTable[0x80 | ((c >> 6) & 0x3F)] + hexTable[0x80 | (c & 0x3F)]; // eslint-disable-line max-len
-    }
-
-    return out;
-};
-
-exports.compact = function (obj, references) {
-    if (typeof obj !== 'object' || obj === null) {
-        return obj;
-    }
-
-    var refs = references || [];
-    var lookup = refs.indexOf(obj);
-    if (lookup !== -1) {
-        return refs[lookup];
-    }
-
-    refs.push(obj);
-
-    if (Array.isArray(obj)) {
-        var compacted = [];
-
-        for (var i = 0; i < obj.length; ++i) {
-            if (obj[i] && typeof obj[i] === 'object') {
-                compacted.push(exports.compact(obj[i], refs));
-            } else if (typeof obj[i] !== 'undefined') {
-                compacted.push(obj[i]);
-            }
-        }
-
-        return compacted;
-    }
-
-    var keys = Object.keys(obj);
-    keys.forEach(function (key) {
-        obj[key] = exports.compact(obj[key], refs);
-    });
-
-    return obj;
-};
-
-exports.isRegExp = function (obj) {
-    return Object.prototype.toString.call(obj) === '[object RegExp]';
-};
-
-exports.isBuffer = function (obj) {
-    if (obj === null || typeof obj === 'undefined') {
-        return false;
-    }
-
-    return !!(obj.constructor && obj.constructor.isBuffer && obj.constructor.isBuffer(obj));
-};
-
-},{}],215:[function(require,module,exports){
+},{}],208:[function(require,module,exports){
 'use strict';
 
 var core = require('../'),
@@ -40949,7 +39865,7 @@ module.exports = function (options) {
 
 };
 
-},{"../":217,"lodash/isArray":198,"lodash/isFunction":199,"lodash/isObjectLike":201}],216:[function(require,module,exports){
+},{"../":210,"lodash/isArray":196,"lodash/isFunction":197,"lodash/isObjectLike":199}],209:[function(require,module,exports){
 'use strict';
 
 
@@ -41013,7 +39929,7 @@ module.exports = {
     TransformError: TransformError
 };
 
-},{}],217:[function(require,module,exports){
+},{}],210:[function(require,module,exports){
 'use strict';
 
 var errors = require('./errors.js'),
@@ -41182,7 +40098,7 @@ module.exports = function (options) {
 
 };
 
-},{"./errors.js":216,"lodash/isFunction":199,"lodash/isObjectLike":201,"lodash/isString":202,"lodash/isUndefined":203}],218:[function(require,module,exports){
+},{"./errors.js":209,"lodash/isFunction":197,"lodash/isObjectLike":199,"lodash/isString":200,"lodash/isUndefined":201}],211:[function(require,module,exports){
 'use strict';
 
 var Bluebird = require('bluebird').getNewLibraryCopy(),
@@ -41235,7 +40151,7 @@ request.bindCLS = function RP$bindCLS() {
 
 module.exports = request;
 
-},{"bluebird":68,"os":undefined,"request":219,"request-promise-core/configure/request2":215,"stealthy-require":259,"tough-cookie":261}],219:[function(require,module,exports){
+},{"bluebird":68,"os":undefined,"request":212,"request-promise-core/configure/request2":208,"stealthy-require":259,"tough-cookie":261}],212:[function(require,module,exports){
 // Copyright 2010-2012 Mikeal Rogers
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -41393,7 +40309,7 @@ Object.defineProperty(request, 'debug', {
   }
 })
 
-},{"./lib/cookies":221,"./lib/helpers":224,"./request":230,"extend":143}],220:[function(require,module,exports){
+},{"./lib/cookies":214,"./lib/helpers":217,"./request":230,"extend":143}],213:[function(require,module,exports){
 'use strict'
 
 var caseless = require('caseless')
@@ -41563,7 +40479,7 @@ Auth.prototype.onResponse = function (response) {
 
 exports.Auth = Auth
 
-},{"./helpers":224,"caseless":102,"uuid":271}],221:[function(require,module,exports){
+},{"./helpers":217,"caseless":102,"uuid":271}],214:[function(require,module,exports){
 'use strict'
 
 var tough = require('tough-cookie')
@@ -41604,7 +40520,7 @@ exports.jar = function(store) {
   return new RequestJar(store)
 }
 
-},{"tough-cookie":261}],222:[function(require,module,exports){
+},{"tough-cookie":261}],215:[function(require,module,exports){
 'use strict'
 
 function formatHostname(hostname) {
@@ -41685,7 +40601,7 @@ function getProxyFromURI(uri) {
 
 module.exports = getProxyFromURI
 
-},{}],223:[function(require,module,exports){
+},{}],216:[function(require,module,exports){
 'use strict'
 
 var fs = require('fs')
@@ -41902,7 +40818,7 @@ Har.prototype.options = function (options) {
 
 exports.Har = Har
 
-},{"extend":143,"fs":undefined,"har-validator":168,"querystring":undefined}],224:[function(require,module,exports){
+},{"extend":143,"fs":undefined,"har-validator":166,"querystring":undefined}],217:[function(require,module,exports){
 'use strict'
 
 var jsonSafeStringify = require('json-stringify-safe')
@@ -41970,7 +40886,7 @@ exports.copy                  = copy
 exports.version               = version
 exports.defer                 = defer
 
-},{"crypto":undefined,"json-stringify-safe":186,"safe-buffer":231}],225:[function(require,module,exports){
+},{"crypto":undefined,"json-stringify-safe":184,"safe-buffer":231}],218:[function(require,module,exports){
 'use strict'
 
 var uuid = require('uuid')
@@ -42085,7 +41001,7 @@ Multipart.prototype.onRequest = function (options) {
 
 exports.Multipart = Multipart
 
-},{"combined-stream":104,"isstream":183,"safe-buffer":231,"uuid":271}],226:[function(require,module,exports){
+},{"combined-stream":104,"isstream":181,"safe-buffer":231,"uuid":271}],219:[function(require,module,exports){
 'use strict'
 
 var url = require('url')
@@ -42235,7 +41151,7 @@ OAuth.prototype.onRequest = function (_oauth) {
 
 exports.OAuth = OAuth
 
-},{"caseless":102,"crypto":undefined,"oauth-sign":207,"qs":211,"safe-buffer":231,"url":undefined,"uuid":271}],227:[function(require,module,exports){
+},{"caseless":102,"crypto":undefined,"oauth-sign":205,"qs":226,"safe-buffer":231,"url":undefined,"uuid":271}],220:[function(require,module,exports){
 'use strict'
 
 var qs = require('qs')
@@ -42288,7 +41204,7 @@ Querystring.prototype.unescape = querystring.unescape
 
 exports.Querystring = Querystring
 
-},{"qs":211,"querystring":undefined}],228:[function(require,module,exports){
+},{"qs":226,"querystring":undefined}],221:[function(require,module,exports){
 'use strict'
 
 var url = require('url')
@@ -42447,7 +41363,7 @@ Redirect.prototype.onResponse = function (response) {
 
 exports.Redirect = Redirect
 
-},{"url":undefined}],229:[function(require,module,exports){
+},{"url":undefined}],222:[function(require,module,exports){
 'use strict'
 
 var url = require('url')
@@ -42625,7 +41541,1060 @@ Tunnel.defaultProxyHeaderWhiteList = defaultProxyHeaderWhiteList
 Tunnel.defaultProxyHeaderExclusiveList = defaultProxyHeaderExclusiveList
 exports.Tunnel = Tunnel
 
-},{"tunnel-agent":268,"url":undefined}],230:[function(require,module,exports){
+},{"tunnel-agent":268,"url":undefined}],223:[function(require,module,exports){
+var CombinedStream = require('combined-stream');
+var util = require('util');
+var path = require('path');
+var http = require('http');
+var https = require('https');
+var parseUrl = require('url').parse;
+var fs = require('fs');
+var mime = require('mime-types');
+var asynckit = require('asynckit');
+var populate = require('./populate.js');
+
+// Public API
+module.exports = FormData;
+
+// make it a Stream
+util.inherits(FormData, CombinedStream);
+
+/**
+ * Create readable "multipart/form-data" streams.
+ * Can be used to submit forms
+ * and file uploads to other web applications.
+ *
+ * @constructor
+ */
+function FormData() {
+  if (!(this instanceof FormData)) {
+    return new FormData();
+  }
+
+  this._overheadLength = 0;
+  this._valueLength = 0;
+  this._valuesToMeasure = [];
+
+  CombinedStream.call(this);
+}
+
+FormData.LINE_BREAK = '\r\n';
+FormData.DEFAULT_CONTENT_TYPE = 'application/octet-stream';
+
+FormData.prototype.append = function(field, value, options) {
+
+  options = options || {};
+
+  // allow filename as single option
+  if (typeof options == 'string') {
+    options = {filename: options};
+  }
+
+  var append = CombinedStream.prototype.append.bind(this);
+
+  // all that streamy business can't handle numbers
+  if (typeof value == 'number') {
+    value = '' + value;
+  }
+
+  // https://github.com/felixge/node-form-data/issues/38
+  if (util.isArray(value)) {
+    // Please convert your array into string
+    // the way web server expects it
+    this._error(new Error('Arrays are not supported.'));
+    return;
+  }
+
+  var header = this._multiPartHeader(field, value, options);
+  var footer = this._multiPartFooter();
+
+  append(header);
+  append(value);
+  append(footer);
+
+  // pass along options.knownLength
+  this._trackLength(header, value, options);
+};
+
+FormData.prototype._trackLength = function(header, value, options) {
+  var valueLength = 0;
+
+  // used w/ getLengthSync(), when length is known.
+  // e.g. for streaming directly from a remote server,
+  // w/ a known file a size, and not wanting to wait for
+  // incoming file to finish to get its size.
+  if (options.knownLength != null) {
+    valueLength += +options.knownLength;
+  } else if (Buffer.isBuffer(value)) {
+    valueLength = value.length;
+  } else if (typeof value === 'string') {
+    valueLength = Buffer.byteLength(value);
+  }
+
+  this._valueLength += valueLength;
+
+  // @check why add CRLF? does this account for custom/multiple CRLFs?
+  this._overheadLength +=
+    Buffer.byteLength(header) +
+    FormData.LINE_BREAK.length;
+
+  // empty or either doesn't have path or not an http response
+  if (!value || ( !value.path && !(value.readable && value.hasOwnProperty('httpVersion')) )) {
+    return;
+  }
+
+  // no need to bother with the length
+  if (!options.knownLength) {
+    this._valuesToMeasure.push(value);
+  }
+};
+
+FormData.prototype._lengthRetriever = function(value, callback) {
+
+  if (value.hasOwnProperty('fd')) {
+
+    // take read range into a account
+    // `end` = Infinity –> read file till the end
+    //
+    // TODO: Looks like there is bug in Node fs.createReadStream
+    // it doesn't respect `end` options without `start` options
+    // Fix it when node fixes it.
+    // https://github.com/joyent/node/issues/7819
+    if (value.end != undefined && value.end != Infinity && value.start != undefined) {
+
+      // when end specified
+      // no need to calculate range
+      // inclusive, starts with 0
+      callback(null, value.end + 1 - (value.start ? value.start : 0));
+
+    // not that fast snoopy
+    } else {
+      // still need to fetch file size from fs
+      fs.stat(value.path, function(err, stat) {
+
+        var fileSize;
+
+        if (err) {
+          callback(err);
+          return;
+        }
+
+        // update final size based on the range options
+        fileSize = stat.size - (value.start ? value.start : 0);
+        callback(null, fileSize);
+      });
+    }
+
+  // or http response
+  } else if (value.hasOwnProperty('httpVersion')) {
+    callback(null, +value.headers['content-length']);
+
+  // or request stream http://github.com/mikeal/request
+  } else if (value.hasOwnProperty('httpModule')) {
+    // wait till response come back
+    value.on('response', function(response) {
+      value.pause();
+      callback(null, +response.headers['content-length']);
+    });
+    value.resume();
+
+  // something else
+  } else {
+    callback('Unknown stream');
+  }
+};
+
+FormData.prototype._multiPartHeader = function(field, value, options) {
+  // custom header specified (as string)?
+  // it becomes responsible for boundary
+  // (e.g. to handle extra CRLFs on .NET servers)
+  if (typeof options.header == 'string') {
+    return options.header;
+  }
+
+  var contentDisposition = this._getContentDisposition(value, options);
+  var contentType = this._getContentType(value, options);
+
+  var contents = '';
+  var headers  = {
+    // add custom disposition as third element or keep it two elements if not
+    'Content-Disposition': ['form-data', 'name="' + field + '"'].concat(contentDisposition || []),
+    // if no content type. allow it to be empty array
+    'Content-Type': [].concat(contentType || [])
+  };
+
+  // allow custom headers.
+  if (typeof options.header == 'object') {
+    populate(headers, options.header);
+  }
+
+  var header;
+  for (var prop in headers) {
+    header = headers[prop];
+
+    // skip nullish headers.
+    if (header == null) {
+      continue;
+    }
+
+    // convert all headers to arrays.
+    if (!Array.isArray(header)) {
+      header = [header];
+    }
+
+    // add non-empty headers.
+    if (header.length) {
+      contents += prop + ': ' + header.join('; ') + FormData.LINE_BREAK;
+    }
+  }
+
+  return '--' + this.getBoundary() + FormData.LINE_BREAK + contents + FormData.LINE_BREAK;
+};
+
+FormData.prototype._getContentDisposition = function(value, options) {
+
+  var contentDisposition;
+
+  // custom filename takes precedence
+  // fs- and request- streams have path property
+  // formidable and the browser add a name property.
+  var filename = options.filename || value.name || value.path;
+
+  // or try http response
+  if (!filename && value.readable && value.hasOwnProperty('httpVersion')) {
+    filename = value.client._httpMessage.path;
+  }
+
+  if (filename) {
+    contentDisposition = 'filename="' + path.basename(filename) + '"';
+  }
+
+  return contentDisposition;
+};
+
+FormData.prototype._getContentType = function(value, options) {
+
+  // use custom content-type above all
+  var contentType = options.contentType;
+
+  // or try `name` from formidable, browser
+  if (!contentType && value.name) {
+    contentType = mime.lookup(value.name);
+  }
+
+  // or try `path` from fs-, request- streams
+  if (!contentType && value.path) {
+    contentType = mime.lookup(value.path);
+  }
+
+  // or if it's http-reponse
+  if (!contentType && value.readable && value.hasOwnProperty('httpVersion')) {
+    contentType = value.headers['content-type'];
+  }
+
+  // or guess it from the filename
+  if (!contentType && options.filename) {
+    contentType = mime.lookup(options.filename);
+  }
+
+  // fallback to the default content type if `value` is not simple value
+  if (!contentType && typeof value == 'object') {
+    contentType = FormData.DEFAULT_CONTENT_TYPE;
+  }
+
+  return contentType;
+};
+
+FormData.prototype._multiPartFooter = function() {
+  return function(next) {
+    var footer = FormData.LINE_BREAK;
+
+    var lastPart = (this._streams.length === 0);
+    if (lastPart) {
+      footer += this._lastBoundary();
+    }
+
+    next(footer);
+  }.bind(this);
+};
+
+FormData.prototype._lastBoundary = function() {
+  return '--' + this.getBoundary() + '--' + FormData.LINE_BREAK;
+};
+
+FormData.prototype.getHeaders = function(userHeaders) {
+  var header;
+  var formHeaders = {
+    'content-type': 'multipart/form-data; boundary=' + this.getBoundary()
+  };
+
+  for (header in userHeaders) {
+    if (userHeaders.hasOwnProperty(header)) {
+      formHeaders[header.toLowerCase()] = userHeaders[header];
+    }
+  }
+
+  return formHeaders;
+};
+
+FormData.prototype.getBoundary = function() {
+  if (!this._boundary) {
+    this._generateBoundary();
+  }
+
+  return this._boundary;
+};
+
+FormData.prototype._generateBoundary = function() {
+  // This generates a 50 character boundary similar to those used by Firefox.
+  // They are optimized for boyer-moore parsing.
+  var boundary = '--------------------------';
+  for (var i = 0; i < 24; i++) {
+    boundary += Math.floor(Math.random() * 10).toString(16);
+  }
+
+  this._boundary = boundary;
+};
+
+// Note: getLengthSync DOESN'T calculate streams length
+// As workaround one can calculate file size manually
+// and add it as knownLength option
+FormData.prototype.getLengthSync = function() {
+  var knownLength = this._overheadLength + this._valueLength;
+
+  // Don't get confused, there are 3 "internal" streams for each keyval pair
+  // so it basically checks if there is any value added to the form
+  if (this._streams.length) {
+    knownLength += this._lastBoundary().length;
+  }
+
+  // https://github.com/form-data/form-data/issues/40
+  if (!this.hasKnownLength()) {
+    // Some async length retrievers are present
+    // therefore synchronous length calculation is false.
+    // Please use getLength(callback) to get proper length
+    this._error(new Error('Cannot calculate proper length in synchronous way.'));
+  }
+
+  return knownLength;
+};
+
+// Public API to check if length of added values is known
+// https://github.com/form-data/form-data/issues/196
+// https://github.com/form-data/form-data/issues/262
+FormData.prototype.hasKnownLength = function() {
+  var hasKnownLength = true;
+
+  if (this._valuesToMeasure.length) {
+    hasKnownLength = false;
+  }
+
+  return hasKnownLength;
+};
+
+FormData.prototype.getLength = function(cb) {
+  var knownLength = this._overheadLength + this._valueLength;
+
+  if (this._streams.length) {
+    knownLength += this._lastBoundary().length;
+  }
+
+  if (!this._valuesToMeasure.length) {
+    process.nextTick(cb.bind(this, null, knownLength));
+    return;
+  }
+
+  asynckit.parallel(this._valuesToMeasure, this._lengthRetriever, function(err, values) {
+    if (err) {
+      cb(err);
+      return;
+    }
+
+    values.forEach(function(length) {
+      knownLength += length;
+    });
+
+    cb(null, knownLength);
+  });
+};
+
+FormData.prototype.submit = function(params, cb) {
+  var request
+    , options
+    , defaults = {method: 'post'}
+    ;
+
+  // parse provided url if it's string
+  // or treat it as options object
+  if (typeof params == 'string') {
+
+    params = parseUrl(params);
+    options = populate({
+      port: params.port,
+      path: params.pathname,
+      host: params.hostname
+    }, defaults);
+
+  // use custom params
+  } else {
+
+    options = populate(params, defaults);
+    // if no port provided use default one
+    if (!options.port) {
+      options.port = options.protocol == 'https:' ? 443 : 80;
+    }
+  }
+
+  // put that good code in getHeaders to some use
+  options.headers = this.getHeaders(params.headers);
+
+  // https if specified, fallback to http in any other case
+  if (options.protocol == 'https:') {
+    request = https.request(options);
+  } else {
+    request = http.request(options);
+  }
+
+  // get content length and fire away
+  this.getLength(function(err, length) {
+    if (err) {
+      this._error(err);
+      return;
+    }
+
+    // add content length
+    request.setHeader('Content-Length', length);
+
+    this.pipe(request);
+    if (cb) {
+      request.on('error', cb);
+      request.on('response', cb.bind(this, null));
+    }
+  }.bind(this));
+
+  return request;
+};
+
+FormData.prototype._error = function(err) {
+  if (!this.error) {
+    this.error = err;
+    this.pause();
+    this.emit('error', err);
+  }
+};
+
+FormData.prototype.toString = function () {
+  return '[object FormData]';
+};
+
+},{"./populate.js":224,"asynckit":50,"combined-stream":104,"fs":undefined,"http":undefined,"https":undefined,"mime-types":204,"path":undefined,"url":undefined,"util":undefined}],224:[function(require,module,exports){
+// populates missing values
+module.exports = function(dst, src) {
+
+  Object.keys(src).forEach(function(prop)
+  {
+    dst[prop] = dst[prop] || src[prop];
+  });
+
+  return dst;
+};
+
+},{}],225:[function(require,module,exports){
+'use strict';
+
+var replace = String.prototype.replace;
+var percentTwenties = /%20/g;
+
+module.exports = {
+    'default': 'RFC3986',
+    formatters: {
+        RFC1738: function (value) {
+            return replace.call(value, percentTwenties, '+');
+        },
+        RFC3986: function (value) {
+            return value;
+        }
+    },
+    RFC1738: 'RFC1738',
+    RFC3986: 'RFC3986'
+};
+
+},{}],226:[function(require,module,exports){
+'use strict';
+
+var stringify = require('./stringify');
+var parse = require('./parse');
+var formats = require('./formats');
+
+module.exports = {
+    formats: formats,
+    parse: parse,
+    stringify: stringify
+};
+
+},{"./formats":225,"./parse":227,"./stringify":228}],227:[function(require,module,exports){
+'use strict';
+
+var utils = require('./utils');
+
+var has = Object.prototype.hasOwnProperty;
+
+var defaults = {
+    allowDots: false,
+    allowPrototypes: false,
+    arrayLimit: 20,
+    decoder: utils.decode,
+    delimiter: '&',
+    depth: 5,
+    parameterLimit: 1000,
+    plainObjects: false,
+    strictNullHandling: false
+};
+
+var parseValues = function parseQueryStringValues(str, options) {
+    var obj = {};
+    var parts = str.split(options.delimiter, options.parameterLimit === Infinity ? undefined : options.parameterLimit);
+
+    for (var i = 0; i < parts.length; ++i) {
+        var part = parts[i];
+        var pos = part.indexOf(']=') === -1 ? part.indexOf('=') : part.indexOf(']=') + 1;
+
+        var key, val;
+        if (pos === -1) {
+            key = options.decoder(part);
+            val = options.strictNullHandling ? null : '';
+        } else {
+            key = options.decoder(part.slice(0, pos));
+            val = options.decoder(part.slice(pos + 1));
+        }
+        if (has.call(obj, key)) {
+            obj[key] = [].concat(obj[key]).concat(val);
+        } else {
+            obj[key] = val;
+        }
+    }
+
+    return obj;
+};
+
+var parseObject = function parseObjectRecursive(chain, val, options) {
+    if (!chain.length) {
+        return val;
+    }
+
+    var root = chain.shift();
+
+    var obj;
+    if (root === '[]') {
+        obj = [];
+        obj = obj.concat(parseObject(chain, val, options));
+    } else {
+        obj = options.plainObjects ? Object.create(null) : {};
+        var cleanRoot = root.charAt(0) === '[' && root.charAt(root.length - 1) === ']' ? root.slice(1, -1) : root;
+        var index = parseInt(cleanRoot, 10);
+        if (
+            !isNaN(index) &&
+            root !== cleanRoot &&
+            String(index) === cleanRoot &&
+            index >= 0 &&
+            (options.parseArrays && index <= options.arrayLimit)
+        ) {
+            obj = [];
+            obj[index] = parseObject(chain, val, options);
+        } else {
+            obj[cleanRoot] = parseObject(chain, val, options);
+        }
+    }
+
+    return obj;
+};
+
+var parseKeys = function parseQueryStringKeys(givenKey, val, options) {
+    if (!givenKey) {
+        return;
+    }
+
+    // Transform dot notation to bracket notation
+    var key = options.allowDots ? givenKey.replace(/\.([^.[]+)/g, '[$1]') : givenKey;
+
+    // The regex chunks
+
+    var brackets = /(\[[^[\]]*])/;
+    var child = /(\[[^[\]]*])/g;
+
+    // Get the parent
+
+    var segment = brackets.exec(key);
+    var parent = segment ? key.slice(0, segment.index) : key;
+
+    // Stash the parent if it exists
+
+    var keys = [];
+    if (parent) {
+        // If we aren't using plain objects, optionally prefix keys
+        // that would overwrite object prototype properties
+        if (!options.plainObjects && has.call(Object.prototype, parent)) {
+            if (!options.allowPrototypes) {
+                return;
+            }
+        }
+
+        keys.push(parent);
+    }
+
+    // Loop through children appending to the array until we hit depth
+
+    var i = 0;
+    while ((segment = child.exec(key)) !== null && i < options.depth) {
+        i += 1;
+        if (!options.plainObjects && has.call(Object.prototype, segment[1].slice(1, -1))) {
+            if (!options.allowPrototypes) {
+                return;
+            }
+        }
+        keys.push(segment[1]);
+    }
+
+    // If there's a remainder, just add whatever is left
+
+    if (segment) {
+        keys.push('[' + key.slice(segment.index) + ']');
+    }
+
+    return parseObject(keys, val, options);
+};
+
+module.exports = function (str, opts) {
+    var options = opts || {};
+
+    if (options.decoder !== null && options.decoder !== undefined && typeof options.decoder !== 'function') {
+        throw new TypeError('Decoder has to be a function.');
+    }
+
+    options.delimiter = typeof options.delimiter === 'string' || utils.isRegExp(options.delimiter) ? options.delimiter : defaults.delimiter;
+    options.depth = typeof options.depth === 'number' ? options.depth : defaults.depth;
+    options.arrayLimit = typeof options.arrayLimit === 'number' ? options.arrayLimit : defaults.arrayLimit;
+    options.parseArrays = options.parseArrays !== false;
+    options.decoder = typeof options.decoder === 'function' ? options.decoder : defaults.decoder;
+    options.allowDots = typeof options.allowDots === 'boolean' ? options.allowDots : defaults.allowDots;
+    options.plainObjects = typeof options.plainObjects === 'boolean' ? options.plainObjects : defaults.plainObjects;
+    options.allowPrototypes = typeof options.allowPrototypes === 'boolean' ? options.allowPrototypes : defaults.allowPrototypes;
+    options.parameterLimit = typeof options.parameterLimit === 'number' ? options.parameterLimit : defaults.parameterLimit;
+    options.strictNullHandling = typeof options.strictNullHandling === 'boolean' ? options.strictNullHandling : defaults.strictNullHandling;
+
+    if (str === '' || str === null || typeof str === 'undefined') {
+        return options.plainObjects ? Object.create(null) : {};
+    }
+
+    var tempObj = typeof str === 'string' ? parseValues(str, options) : str;
+    var obj = options.plainObjects ? Object.create(null) : {};
+
+    // Iterate over the keys and setup the new object
+
+    var keys = Object.keys(tempObj);
+    for (var i = 0; i < keys.length; ++i) {
+        var key = keys[i];
+        var newObj = parseKeys(key, tempObj[key], options);
+        obj = utils.merge(obj, newObj, options);
+    }
+
+    return utils.compact(obj);
+};
+
+},{"./utils":229}],228:[function(require,module,exports){
+'use strict';
+
+var utils = require('./utils');
+var formats = require('./formats');
+
+var arrayPrefixGenerators = {
+    brackets: function brackets(prefix) { // eslint-disable-line func-name-matching
+        return prefix + '[]';
+    },
+    indices: function indices(prefix, key) { // eslint-disable-line func-name-matching
+        return prefix + '[' + key + ']';
+    },
+    repeat: function repeat(prefix) { // eslint-disable-line func-name-matching
+        return prefix;
+    }
+};
+
+var toISO = Date.prototype.toISOString;
+
+var defaults = {
+    delimiter: '&',
+    encode: true,
+    encoder: utils.encode,
+    encodeValuesOnly: false,
+    serializeDate: function serializeDate(date) { // eslint-disable-line func-name-matching
+        return toISO.call(date);
+    },
+    skipNulls: false,
+    strictNullHandling: false
+};
+
+var stringify = function stringify( // eslint-disable-line func-name-matching
+    object,
+    prefix,
+    generateArrayPrefix,
+    strictNullHandling,
+    skipNulls,
+    encoder,
+    filter,
+    sort,
+    allowDots,
+    serializeDate,
+    formatter,
+    encodeValuesOnly
+) {
+    var obj = object;
+    if (typeof filter === 'function') {
+        obj = filter(prefix, obj);
+    } else if (obj instanceof Date) {
+        obj = serializeDate(obj);
+    } else if (obj === null) {
+        if (strictNullHandling) {
+            return encoder && !encodeValuesOnly ? encoder(prefix) : prefix;
+        }
+
+        obj = '';
+    }
+
+    if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean' || utils.isBuffer(obj)) {
+        if (encoder) {
+            var keyValue = encodeValuesOnly ? prefix : encoder(prefix);
+            return [formatter(keyValue) + '=' + formatter(encoder(obj))];
+        }
+        return [formatter(prefix) + '=' + formatter(String(obj))];
+    }
+
+    var values = [];
+
+    if (typeof obj === 'undefined') {
+        return values;
+    }
+
+    var objKeys;
+    if (Array.isArray(filter)) {
+        objKeys = filter;
+    } else {
+        var keys = Object.keys(obj);
+        objKeys = sort ? keys.sort(sort) : keys;
+    }
+
+    for (var i = 0; i < objKeys.length; ++i) {
+        var key = objKeys[i];
+
+        if (skipNulls && obj[key] === null) {
+            continue;
+        }
+
+        if (Array.isArray(obj)) {
+            values = values.concat(stringify(
+                obj[key],
+                generateArrayPrefix(prefix, key),
+                generateArrayPrefix,
+                strictNullHandling,
+                skipNulls,
+                encoder,
+                filter,
+                sort,
+                allowDots,
+                serializeDate,
+                formatter,
+                encodeValuesOnly
+            ));
+        } else {
+            values = values.concat(stringify(
+                obj[key],
+                prefix + (allowDots ? '.' + key : '[' + key + ']'),
+                generateArrayPrefix,
+                strictNullHandling,
+                skipNulls,
+                encoder,
+                filter,
+                sort,
+                allowDots,
+                serializeDate,
+                formatter,
+                encodeValuesOnly
+            ));
+        }
+    }
+
+    return values;
+};
+
+module.exports = function (object, opts) {
+    var obj = object;
+    var options = opts || {};
+
+    if (options.encoder !== null && options.encoder !== undefined && typeof options.encoder !== 'function') {
+        throw new TypeError('Encoder has to be a function.');
+    }
+
+    var delimiter = typeof options.delimiter === 'undefined' ? defaults.delimiter : options.delimiter;
+    var strictNullHandling = typeof options.strictNullHandling === 'boolean' ? options.strictNullHandling : defaults.strictNullHandling;
+    var skipNulls = typeof options.skipNulls === 'boolean' ? options.skipNulls : defaults.skipNulls;
+    var encode = typeof options.encode === 'boolean' ? options.encode : defaults.encode;
+    var encoder = typeof options.encoder === 'function' ? options.encoder : defaults.encoder;
+    var sort = typeof options.sort === 'function' ? options.sort : null;
+    var allowDots = typeof options.allowDots === 'undefined' ? false : options.allowDots;
+    var serializeDate = typeof options.serializeDate === 'function' ? options.serializeDate : defaults.serializeDate;
+    var encodeValuesOnly = typeof options.encodeValuesOnly === 'boolean' ? options.encodeValuesOnly : defaults.encodeValuesOnly;
+    if (typeof options.format === 'undefined') {
+        options.format = formats.default;
+    } else if (!Object.prototype.hasOwnProperty.call(formats.formatters, options.format)) {
+        throw new TypeError('Unknown format option provided.');
+    }
+    var formatter = formats.formatters[options.format];
+    var objKeys;
+    var filter;
+
+    if (typeof options.filter === 'function') {
+        filter = options.filter;
+        obj = filter('', obj);
+    } else if (Array.isArray(options.filter)) {
+        filter = options.filter;
+        objKeys = filter;
+    }
+
+    var keys = [];
+
+    if (typeof obj !== 'object' || obj === null) {
+        return '';
+    }
+
+    var arrayFormat;
+    if (options.arrayFormat in arrayPrefixGenerators) {
+        arrayFormat = options.arrayFormat;
+    } else if ('indices' in options) {
+        arrayFormat = options.indices ? 'indices' : 'repeat';
+    } else {
+        arrayFormat = 'indices';
+    }
+
+    var generateArrayPrefix = arrayPrefixGenerators[arrayFormat];
+
+    if (!objKeys) {
+        objKeys = Object.keys(obj);
+    }
+
+    if (sort) {
+        objKeys.sort(sort);
+    }
+
+    for (var i = 0; i < objKeys.length; ++i) {
+        var key = objKeys[i];
+
+        if (skipNulls && obj[key] === null) {
+            continue;
+        }
+
+        keys = keys.concat(stringify(
+            obj[key],
+            key,
+            generateArrayPrefix,
+            strictNullHandling,
+            skipNulls,
+            encode ? encoder : null,
+            filter,
+            sort,
+            allowDots,
+            serializeDate,
+            formatter,
+            encodeValuesOnly
+        ));
+    }
+
+    return keys.join(delimiter);
+};
+
+},{"./formats":225,"./utils":229}],229:[function(require,module,exports){
+'use strict';
+
+var has = Object.prototype.hasOwnProperty;
+
+var hexTable = (function () {
+    var array = [];
+    for (var i = 0; i < 256; ++i) {
+        array.push('%' + ((i < 16 ? '0' : '') + i.toString(16)).toUpperCase());
+    }
+
+    return array;
+}());
+
+exports.arrayToObject = function (source, options) {
+    var obj = options && options.plainObjects ? Object.create(null) : {};
+    for (var i = 0; i < source.length; ++i) {
+        if (typeof source[i] !== 'undefined') {
+            obj[i] = source[i];
+        }
+    }
+
+    return obj;
+};
+
+exports.merge = function (target, source, options) {
+    if (!source) {
+        return target;
+    }
+
+    if (typeof source !== 'object') {
+        if (Array.isArray(target)) {
+            target.push(source);
+        } else if (typeof target === 'object') {
+            if (options.plainObjects || options.allowPrototypes || !has.call(Object.prototype, source)) {
+                target[source] = true;
+            }
+        } else {
+            return [target, source];
+        }
+
+        return target;
+    }
+
+    if (typeof target !== 'object') {
+        return [target].concat(source);
+    }
+
+    var mergeTarget = target;
+    if (Array.isArray(target) && !Array.isArray(source)) {
+        mergeTarget = exports.arrayToObject(target, options);
+    }
+
+    if (Array.isArray(target) && Array.isArray(source)) {
+        source.forEach(function (item, i) {
+            if (has.call(target, i)) {
+                if (target[i] && typeof target[i] === 'object') {
+                    target[i] = exports.merge(target[i], item, options);
+                } else {
+                    target.push(item);
+                }
+            } else {
+                target[i] = item;
+            }
+        });
+        return target;
+    }
+
+    return Object.keys(source).reduce(function (acc, key) {
+        var value = source[key];
+
+        if (Object.prototype.hasOwnProperty.call(acc, key)) {
+            acc[key] = exports.merge(acc[key], value, options);
+        } else {
+            acc[key] = value;
+        }
+        return acc;
+    }, mergeTarget);
+};
+
+exports.decode = function (str) {
+    try {
+        return decodeURIComponent(str.replace(/\+/g, ' '));
+    } catch (e) {
+        return str;
+    }
+};
+
+exports.encode = function (str) {
+    // This code was originally written by Brian White (mscdex) for the io.js core querystring library.
+    // It has been adapted here for stricter adherence to RFC 3986
+    if (str.length === 0) {
+        return str;
+    }
+
+    var string = typeof str === 'string' ? str : String(str);
+
+    var out = '';
+    for (var i = 0; i < string.length; ++i) {
+        var c = string.charCodeAt(i);
+
+        if (
+            c === 0x2D || // -
+            c === 0x2E || // .
+            c === 0x5F || // _
+            c === 0x7E || // ~
+            (c >= 0x30 && c <= 0x39) || // 0-9
+            (c >= 0x41 && c <= 0x5A) || // a-z
+            (c >= 0x61 && c <= 0x7A) // A-Z
+        ) {
+            out += string.charAt(i);
+            continue;
+        }
+
+        if (c < 0x80) {
+            out = out + hexTable[c];
+            continue;
+        }
+
+        if (c < 0x800) {
+            out = out + (hexTable[0xC0 | (c >> 6)] + hexTable[0x80 | (c & 0x3F)]);
+            continue;
+        }
+
+        if (c < 0xD800 || c >= 0xE000) {
+            out = out + (hexTable[0xE0 | (c >> 12)] + hexTable[0x80 | ((c >> 6) & 0x3F)] + hexTable[0x80 | (c & 0x3F)]);
+            continue;
+        }
+
+        i += 1;
+        c = 0x10000 + (((c & 0x3FF) << 10) | (string.charCodeAt(i) & 0x3FF));
+        out += hexTable[0xF0 | (c >> 18)] + hexTable[0x80 | ((c >> 12) & 0x3F)] + hexTable[0x80 | ((c >> 6) & 0x3F)] + hexTable[0x80 | (c & 0x3F)]; // eslint-disable-line max-len
+    }
+
+    return out;
+};
+
+exports.compact = function (obj, references) {
+    if (typeof obj !== 'object' || obj === null) {
+        return obj;
+    }
+
+    var refs = references || [];
+    var lookup = refs.indexOf(obj);
+    if (lookup !== -1) {
+        return refs[lookup];
+    }
+
+    refs.push(obj);
+
+    if (Array.isArray(obj)) {
+        var compacted = [];
+
+        for (var i = 0; i < obj.length; ++i) {
+            if (obj[i] && typeof obj[i] === 'object') {
+                compacted.push(exports.compact(obj[i], refs));
+            } else if (typeof obj[i] !== 'undefined') {
+                compacted.push(obj[i]);
+            }
+        }
+
+        return compacted;
+    }
+
+    var keys = Object.keys(obj);
+    keys.forEach(function (key) {
+        obj[key] = exports.compact(obj[key], refs);
+    });
+
+    return obj;
+};
+
+exports.isRegExp = function (obj) {
+    return Object.prototype.toString.call(obj) === '[object RegExp]';
+};
+
+exports.isBuffer = function (obj) {
+    if (obj === null || typeof obj === 'undefined') {
+        return false;
+    }
+
+    return !!(obj.constructor && obj.constructor.isBuffer && obj.constructor.isBuffer(obj));
+};
+
+},{}],230:[function(require,module,exports){
 'use strict'
 
 var http = require('http')
@@ -44192,7 +44161,7 @@ Request.defaultProxyHeaderExclusiveList =
 Request.prototype.toJSON = requestToJSON
 module.exports = Request
 
-},{"./lib/auth":220,"./lib/cookies":221,"./lib/getProxyFromURI":222,"./lib/har":223,"./lib/helpers":224,"./lib/multipart":225,"./lib/oauth":226,"./lib/querystring":227,"./lib/redirect":228,"./lib/tunnel":229,"aws-sign2":60,"aws4":61,"caseless":102,"extend":143,"forever-agent":145,"form-data":146,"hawk":171,"http":undefined,"http-signature":177,"https":undefined,"is-typedarray":182,"isstream":183,"mime-types":206,"performance-now":208,"safe-buffer":231,"stream":undefined,"stringstream":260,"url":undefined,"util":undefined,"zlib":undefined}],231:[function(require,module,exports){
+},{"./lib/auth":213,"./lib/cookies":214,"./lib/getProxyFromURI":215,"./lib/har":216,"./lib/helpers":217,"./lib/multipart":218,"./lib/oauth":219,"./lib/querystring":220,"./lib/redirect":221,"./lib/tunnel":222,"aws-sign2":60,"aws4":61,"caseless":102,"extend":143,"forever-agent":145,"form-data":223,"hawk":169,"http":undefined,"http-signature":175,"https":undefined,"is-typedarray":180,"isstream":181,"mime-types":204,"performance-now":206,"safe-buffer":231,"stream":undefined,"stringstream":260,"url":undefined,"util":undefined,"zlib":undefined}],231:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
 var Buffer = buffer.Buffer
@@ -44769,7 +44738,7 @@ internals.ignore = function () {
 
 };
 
-},{"dgram":undefined,"dns":undefined,"hoek":176}],235:[function(require,module,exports){
+},{"dgram":undefined,"dns":undefined,"hoek":174}],235:[function(require,module,exports){
 // Copyright 2015 Joyent, Inc.
 
 var algInfo = {
@@ -45731,7 +45700,7 @@ function generateECDSA(curve) {
 	}
 }
 
-},{"./algs":235,"./key":253,"./private-key":254,"./utils":257,"assert-plus":258,"crypto":undefined,"ecc-jsbn":140,"ecc-jsbn/lib/ec":141,"jsbn":184,"tweetnacl":269}],238:[function(require,module,exports){
+},{"./algs":235,"./key":253,"./private-key":254,"./utils":257,"assert-plus":258,"crypto":undefined,"ecc-jsbn":140,"ecc-jsbn/lib/ec":141,"jsbn":182,"tweetnacl":269}],238:[function(require,module,exports){
 // Copyright 2015 Joyent, Inc.
 
 module.exports = {
@@ -50435,9 +50404,9 @@ function opensshCipherInfo(cipher) {
 	return (inf);
 }
 
-},{"./private-key":254,"assert-plus":258,"crypto":undefined,"jsbn":184}],258:[function(require,module,exports){
-arguments[4][191][0].apply(exports,arguments)
-},{"assert":undefined,"dup":191,"stream":undefined,"util":undefined}],259:[function(require,module,exports){
+},{"./private-key":254,"assert-plus":258,"crypto":undefined,"jsbn":182}],258:[function(require,module,exports){
+arguments[4][189][0].apply(exports,arguments)
+},{"assert":undefined,"dup":189,"stream":undefined,"util":undefined}],259:[function(require,module,exports){
 'use strict';
 
 var isNative = /\.node$/;
@@ -52430,52 +52399,29 @@ Store.prototype.getAllCookies = function(cb) {
 
 },{}],267:[function(require,module,exports){
 module.exports={
-  "_args": [
-    [
-      {
-        "raw": "tough-cookie@>=2.3.0",
-        "scope": null,
-        "escapedName": "tough-cookie",
-        "name": "tough-cookie",
-        "rawSpec": ">=2.3.0",
-        "spec": ">=2.3.0",
-        "type": "range"
-      },
-      "/Users/ddascal/Projects/bladerunner/io-event-logging-test/node_modules/request-promise"
-    ]
-  ],
   "_from": "tough-cookie@>=2.3.0",
   "_id": "tough-cookie@2.3.2",
-  "_inCache": true,
+  "_inBundle": false,
+  "_integrity": "sha1-8IH3bkyFcg5sN6X6ztc3FQ2EByo=",
   "_location": "/tough-cookie",
-  "_nodeVersion": "7.0.0",
-  "_npmOperationalInternal": {
-    "host": "packages-12-west.internal.npmjs.com",
-    "tmp": "tmp/tough-cookie-2.3.2.tgz_1477415232912_0.6133609430398792"
-  },
-  "_npmUser": {
-    "name": "jstash",
-    "email": "jstash@gmail.com"
-  },
-  "_npmVersion": "3.10.8",
   "_phantomChildren": {},
   "_requested": {
+    "type": "range",
+    "registry": true,
     "raw": "tough-cookie@>=2.3.0",
-    "scope": null,
-    "escapedName": "tough-cookie",
     "name": "tough-cookie",
+    "escapedName": "tough-cookie",
     "rawSpec": ">=2.3.0",
-    "spec": ">=2.3.0",
-    "type": "range"
+    "saveSpec": null,
+    "fetchSpec": ">=2.3.0"
   },
   "_requiredBy": [
     "/request-promise"
   ],
   "_resolved": "https://registry.npmjs.org/tough-cookie/-/tough-cookie-2.3.2.tgz",
   "_shasum": "f081f76e4c85720e6c37a5faced737150d84072a",
-  "_shrinkwrap": null,
   "_spec": "tough-cookie@>=2.3.0",
-  "_where": "/Users/ddascal/Projects/bladerunner/io-event-logging-test/node_modules/request-promise",
+  "_where": "D:\\code\\2017\\github\\io-event-logging-test\\node_modules\\request-promise",
   "author": {
     "name": "Jeremy Stashewsky",
     "email": "jstashewsky@salesforce.com"
@@ -52483,6 +52429,7 @@ module.exports={
   "bugs": {
     "url": "https://github.com/salesforce/tough-cookie/issues"
   },
+  "bundleDependencies": false,
   "contributors": [
     {
       "name": "Alexander Savin"
@@ -52506,16 +52453,12 @@ module.exports={
   "dependencies": {
     "punycode": "^1.4.1"
   },
+  "deprecated": false,
   "description": "RFC6265 Cookies and Cookie Jar for node.js",
   "devDependencies": {
     "async": "^1.4.2",
     "string.prototype.repeat": "^0.2.0",
     "vows": "^0.8.1"
-  },
-  "directories": {},
-  "dist": {
-    "shasum": "f081f76e4c85720e6c37a5faced737150d84072a",
-    "tarball": "https://registry.npmjs.org/tough-cookie/-/tough-cookie-2.3.2.tgz"
   },
   "engines": {
     "node": ">=0.8"
@@ -52523,7 +52466,6 @@ module.exports={
   "files": [
     "lib"
   ],
-  "gitHead": "2610df5dc8ef7373a483d509006e5887572a4076",
   "homepage": "https://github.com/salesforce/tough-cookie",
   "keywords": [
     "HTTP",
@@ -52537,23 +52479,7 @@ module.exports={
   ],
   "license": "BSD-3-Clause",
   "main": "./lib/cookie",
-  "maintainers": [
-    {
-      "name": "awaterma",
-      "email": "awaterma@awaterma.net"
-    },
-    {
-      "name": "jstash",
-      "email": "jstash@gmail.com"
-    },
-    {
-      "name": "nexxy",
-      "email": "emily@contactvibe.com"
-    }
-  ],
   "name": "tough-cookie",
-  "optionalDependencies": {},
-  "readme": "ERROR: No README data found!",
   "repository": {
     "type": "git",
     "url": "git://github.com/salesforce/tough-cookie.git"
@@ -57091,38 +57017,6 @@ WError.prototype.cause = function we_cause(c)
 };
 
 },{"assert":undefined,"extsprintf":144,"util":undefined}],"main-action":[function(require,module,exports){
-var request = require('request-promise');
-var documentdb = require('documentdb');
+'use strict';var request=require('request-promise'),documentdb=require('documentdb');function logData(a){request({method:'post',body:a,json:!0,url:'https://requestb.in/15rsccl1'},function(c){c||console.log(body)})}function myEntrypoint(a){/* respond to the challenge request with an echo */return a.challenge?{challenge:a.challenge}:a.echo?{echo:a.echo}:void logData(a)}exports.main=myEntrypoint;
 
-function logData(postData) {
-  var options = {
-    method: 'post',
-    body: postData,
-    json: true,
-    url: 'https://requestb.in/u0g37mu0'
-  }
-  
-  request(options, function (error, response, data) {
-    if (!error) {
-      console.log(body);
-    }
-  });   
-}
-
-function myEntrypoint(params) {
-  /* respond to the challenge request with an echo */
-  if (params.challenge) {
-    return { "challenge": params.challenge };
-  }
-  
-  if(params.echo){
-    return { "echo": params.echo };
-  }
-  
-  logData(params);
-}
-
-exports.main = myEntrypoint;
-
-},{"documentdb":107,"request-promise":218}]},{},[]);
-var main = require('main-action').default;
+},{"documentdb":107,"request-promise":211}]},{},[]);
