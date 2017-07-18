@@ -29,5 +29,4 @@ function main(params) {
   logData(params);
 }
 
-//exports.main = myEntrypoint;
-export default main;
+exports.main = main;
