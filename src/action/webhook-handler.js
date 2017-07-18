@@ -1,5 +1,6 @@
 var request = require('request-promise');
 var DocumentDBClient = require('documentdb').DocumentClient;
+var AuthDao = require('./models/authDao');
 var docDbClient;
 var databaseId;
 var collectionId = 'AdobeAuth';
@@ -30,7 +31,7 @@ function main(params) {
   if (params.challenge) {
     return { "challenge": params.challenge };
   }
-  
+
   /* setup the doc db client with host and auth */
   docDbClient = new DocumentDBClient(docDbHost, {
     masterKey: docDbAuth
