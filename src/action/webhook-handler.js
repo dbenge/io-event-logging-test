@@ -1,5 +1,10 @@
 var request = require('request-promise');
-var documentdb = require('documentdb');
+var DocumentDBClient = require('documentdb').DocumentClient;
+var docDbClient;
+var databaseId;
+var collectionId = 'AdobeAuth';
+var docDbHost;
+var docDbAuthKey;
 
 function logData(postData) {
   var options = {
@@ -16,11 +21,20 @@ function logData(postData) {
   });
 }
 
+function storeAuth(){
+  var authDao = new AuthDao(docDbClient, databaseId, collectionId);
+}
+
 function main(params) {
   /* respond to the challenge request with an echo */
   if (params.challenge) {
     return { "challenge": params.challenge };
   }
+  
+  /* setup the doc db client with host and auth */
+  docDbClient = new DocumentDBClient(docDbHost, {
+    masterKey: docDbAuth
+  });
 
   if(params.echo){
     return { "echo": params.echo };
