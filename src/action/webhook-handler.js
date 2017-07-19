@@ -1,4 +1,4 @@
-/*
+ing /*
   wsk action update --kind nodejs:6 dbenge.io-event-logging-test.master_io-event-log/handle-webhook action.zip
   manage accounts https://accounts.adobe.com/#
   https://ims-na1.adobelogin.com/ims/authorize/v1?response_type=code&client_id=7c2b2a20e6f440e0a68432d93089b434&scope=AdobeID%2Copenid%2Ccreative_sdk
@@ -7,12 +7,11 @@ var request = require('request-promise');
 var DocumentDBClient = require('documentdb').DocumentClient;
 var AuthDao = require('./models/authDao');
 var docdbUtils = require('./models/docdbUtils');
-var docDbClient; //db client
+var docDbClient; //db client instance
 var authDatabaseId = "AdobeTest";
 var authCollectionId = 'test';
 var docDbEndpoint = "https://bucky-cosmos-db.documents.azure.com:443/";
 var docDbMasterKey="";
-var docDbAdobeAuthCollectionUrl = "";
 
 function logData(postData) {
   var options = {
